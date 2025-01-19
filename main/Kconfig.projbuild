@@ -26,7 +26,7 @@ menu "Project Configuration"
 
     config WIFI_RETRIES
         int "Wifi retries"
-        default 5
+        default 100
         help
             Amount of retries for connecting to wifi before failure.
 
