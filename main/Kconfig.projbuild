@@ -1,0 +1,45 @@
+menu "Project Configuration"
+
+    config SSID
+        string "SSID"
+        default ""
+        help
+            The Wi-Fi SSID for the ESP32 to connect to.
+
+    config PASSWORD
+        string "Password"
+        default ""
+        help
+            The Wi-Fi password for the ESP32 to connect to.
+
+    config OTA_URL
+        string "OTA URL"
+        default "firmware.bin"
+        help
+            The default OTA firmware URL.
+
+    config FIRMWARE_VERSION_ENDPOINT
+        string "VERSION URL"
+        default "https://example/api/version"
+        help
+            The default firmware version JSON endpoint.
+
+    config WIFI_RETRIES
+        int "Wifi retries"
+        default 5
+        help
+            Amount of retries for connecting to wifi before failure.
+
+    config AP_SSID
+        string "AP SSID"
+        default ""
+        help
+            The Wi-Fi SSID for the ESP32 in AP mode.
+
+    config AP_PASSWORD
+        string "AP Password"
+        default ""
+        help
+            The Wi-Fi password for the ESP32 in AP mode.
+
+endmenu
