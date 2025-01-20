@@ -14,13 +14,13 @@ menu "Project Configuration"
 
     config OTA_URL
         string "OTA URL"
-        default "firmware.bin"
+        default "https://example/firmware"
         help
             The default OTA firmware URL.
 
     config FIRMWARE_VERSION_ENDPOINT
         string "VERSION URL"
-        default "https://example/api/version"
+        default "https://example/version"
         help
             The default firmware version JSON endpoint.
 
@@ -41,5 +41,11 @@ menu "Project Configuration"
         default ""
         help
             The Wi-Fi password for the ESP32 in AP mode.
+
+    config ESP_NAME
+        string "ESP Name"
+        default "ESP-IDF-BOILERPLATE"
+        help
+            The name of the ESP Unit. This can be removed as it used for demonstration purposes
 
 endmenu

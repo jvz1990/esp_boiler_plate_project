@@ -29,6 +29,10 @@ extern "C" {
  * Allocates memory for a buffer, clears it, and handles errors.
  * The caller must ensure `buffer` is a pointer and that the function returns `err_code` on failure.
  *
+ * Sample:
+ * char* buffer = NULL;
+ * ESP_ERROR_CHECK(allocate_and_clear_buffer((void** )&buffer, buffer_size, TAG, ESP_ERR_NO_MEM));
+ *
  * @param buffer Pointer to the buffer to be allocated.
  * @param size Size of the buffer to allocate.
  * @param tag Tag for logging purposes.
@@ -50,10 +54,10 @@ static inline esp_err_t allocate_and_clear_buffer(void** buffer, size_t size, co
  *
  * @param ptr Pointer to free and nullify.
  */
-static inline void check_and_free(void** ptr) {
-  if (*ptr) {
-    free(*ptr);
-    *ptr = NULL;
+static inline void check_and_free(void* ptr) {
+  if (ptr) {
+    free(ptr);
+    ptr = NULL;
   }
 }
 

@@ -33,6 +33,18 @@ typedef struct {
   wifi_settings_t* wifi_settings;
   char ota_url[MAX_URL_LENGTH];
   char version_url[MAX_URL_LENGTH];
+} connectivity_configuration_t;
+
+typedef struct {
+  // Sample user config
+  char* unit_name;
+  uint8_t unit_name_len;
+} user_configuration_t; // TODO test
+
+typedef struct {
+  connectivity_configuration_t con_config;
+  bool wifi_connected;
+  user_configuration_t user_config;
 } unit_configuration_t;
 
 #endif // CONFIGURATION_H
