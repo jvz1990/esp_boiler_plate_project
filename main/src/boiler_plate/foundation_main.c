@@ -17,7 +17,7 @@
 #include "foundation_main.h"
 
 #include <esp_log.h>
-#include <fail_mode_web_page.h>
+#include <ap_mode_web_pages.h>
 #include <ota_download.h>
 #include <version_check.h>
 
@@ -53,14 +53,9 @@ void init_foundation() {
 
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(system_event_group,
-                                           NVS_CONFIG_READ_SUCCESSFULLY | GO_INTO_AP_MODE | RECEIVED_IP_ADDRESS |
-                                             NEW_FIRMWARE_AVAILABLE | FIRMWARE_VERSION_UP_TO_DATE,
+                                           NVS_CONFIG_READ_SUCCESSFULLY | RECEIVED_IP_ADDRESS |
+                                             NEW_FIRMWARE_AVAILABLE | FIRMWARE_VERSION_UP_TO_DATE | START_WEB_AP_WEBPAGE | REBOOTING,
                                            pdFALSE, pdFALSE, portMAX_DELAY);
-
-    if (bits & GO_INTO_AP_MODE) {
-      ESP_LOGE(TAG, "!!! Shutting down tasks and going into failed state mode !!!");
-      vTaskDelay(60000 / portTICK_PERIOD_MS);
-    }
 
     if (bits & NVS_CONFIG_READ_SUCCESSFULLY) {
       xEventGroupClearBits(system_event_group, NVS_CONFIG_READ_SUCCESSFULLY);
@@ -91,8 +86,8 @@ void init_foundation() {
       break;
     }
 
-    if (bits == 0) {
-      ESP_LOGW(TAG, "Unhandled event bits: %lx", bits);
+    if (bits & REBOOTING) {
+      break;
     }
   }
 

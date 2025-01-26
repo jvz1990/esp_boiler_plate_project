@@ -35,6 +35,7 @@ extern EventGroupHandle_t system_event_group;
 #define CHECK_HTTPS_FIRMWARE_VERSION BIT7 // Firmware versioning
 #define FIRMWARE_VERSION_UP_TO_DATE BIT8
 #define NEW_FIRMWARE_AVAILABLE BIT9
+#define REBOOTING BIT10
 
 // Initialize the singleton (called once)
 void unit_config_init();

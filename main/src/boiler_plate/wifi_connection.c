@@ -15,6 +15,9 @@
  */
 
 #include "wifi_connection.h"
+
+#include <captive_portal.h>
+
 #include "allocation.h"
 #include "configuration.h"
 
@@ -23,14 +26,11 @@
 #include <esp_wifi_types_generic.h>
 #include <state.h>
 #include <string.h>
+#include <lwip/sockets.h>
 
 #define WIFI_DELAY_RECONNECT_MS 30000
 
-#define WIFI_SSID "ESP32_Host"
-#define WIFI_PASS "password1234"
-#define MAX_STA_CONN 1
-
-static const char *TAG = "WIFI_MANAGER";
+static const char* TAG = "WIFI_MANAGER";
 static uint32_t wifi_retry_count = 0;
 static wifi_config_t wifi_config = {0};
 static esp_event_handler_instance_t wifi_event_handler_t = NULL;
@@ -41,8 +41,8 @@ static char strongest_wifi_password[MAX_PASSWORD_LENGTH] = {0};
 static esp_err_t find_strongest_ssid();
 static void wifi_retry_connect();
 static void log_wifi_disconnect(uint8_t reason);
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
-static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
+static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 static esp_err_t wifi_init();
 static esp_err_t start_wifi_ap_scan();
 static void setup_ap_mode();
@@ -52,7 +52,7 @@ static esp_err_t find_strongest_ssid() {
 
   uint16_t number_of_networks = 0;
   uint8_t max_retry = 5;
-  wifi_ap_record_t *ap_records = NULL;
+  wifi_ap_record_t* ap_records = NULL;
 
   while ((err = esp_wifi_scan_get_ap_num(&number_of_networks)) != ESP_OK) {
     if (--max_retry <= 0)
@@ -81,11 +81,11 @@ static esp_err_t find_strongest_ssid() {
   bool ssid_found = false;
   int8_t strongest_rssi = -100;
   if (err == ESP_OK) {
-    const unit_configuration_t *unit_config = unit_config_acquire();
-    const connectivity_configuration_t *con_config = &(unit_config->con_config);
+    const unit_configuration_t* unit_config = unit_config_acquire();
+    const connectivity_configuration_t* con_config = &(unit_config->con_config);
     strlcpy(strongest_wifi_ssid, con_config->wifi_settings[0].ssid, MAX_SSID_LENGTH);
     strlcpy(strongest_wifi_password, con_config->wifi_settings[0].password, MAX_PASSWORD_LENGTH);
-    wifi_settings_t const *const wifi_settings = con_config->wifi_settings;
+    wifi_settings_t const* const wifi_settings = con_config->wifi_settings;
     for (int i = 0; i < number_of_networks; i++) {
       if (strlen((char *)ap_records[i].ssid) == 0)
         continue; // Skip empty SSIDs
@@ -115,9 +115,9 @@ static esp_err_t find_strongest_ssid() {
   }
 
   if (err == ESP_OK) {
-    // Copy SSID and password using strlcpy
     strlcpy((char *)wifi_config.sta.ssid, strongest_wifi_ssid, sizeof(wifi_config.sta.ssid));
     strlcpy((char *)wifi_config.sta.password, strongest_wifi_password, sizeof(wifi_config.sta.password));
+    wifi_config.ap.pmf_cfg.required = true;
     esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
   } else {
     ESP_LOGE(TAG, "Error: %s", esp_err_to_name(err));
@@ -130,6 +130,7 @@ static esp_err_t find_strongest_ssid() {
 
 static void wifi_retry_connect() {
   ESP_LOGW(TAG, "Connection failed - retrying in %d ms", WIFI_DELAY_RECONNECT_MS);
+  stop_dns_server();
   esp_wifi_stop();
   esp_wifi_disconnect();
   vTaskDelay(WIFI_DELAY_RECONNECT_MS / portTICK_PERIOD_MS);
@@ -186,7 +187,7 @@ static esp_err_t wifi_connect_retry() {
   return err;
 }
 
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
   if (event_base != WIFI_EVENT) {
     ESP_LOGW(TAG, "Non-Wifi event in wifi event handler");
     return;
@@ -226,30 +227,31 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
       break;
 
     case WIFI_EVENT_STA_DISCONNECTED:
-      { // triggerd by; esp_wifi_connect(), or connection fails
-        ESP_LOGW(TAG, "ESP WiFi disconnected");
-        unit_configuration_t *unit_config = unit_config_acquire();
-        unit_config->wifi_connected = false;
-        unit_config_release();
+    {
+      // triggerd by; esp_wifi_connect(), or connection fails
+      ESP_LOGW(TAG, "ESP WiFi disconnected");
+      unit_configuration_t* unit_config = unit_config_acquire();
+      unit_config->wifi_connected = false;
+      unit_config_release();
 
-        const wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
-        assert(event != NULL);
+      const wifi_event_sta_disconnected_t* event = (wifi_event_sta_disconnected_t*)event_data;
+      assert(event != NULL);
 
-        log_wifi_disconnect(event->reason);
+      log_wifi_disconnect(event->reason);
 
-        if (wifi_retry_count < CONFIG_WIFI_RETRIES) {
-          wifi_retry_connect();
-          wifi_retry_count++;
-          if (wifi_retry_count >= CONFIG_WIFI_RETRIES) {
-            ESP_LOGE(TAG, "Failed to connect after %d attempts", CONFIG_WIFI_RETRIES);
-          } else {
-            ESP_LOGI(TAG, "Retry %lu/%d", wifi_retry_count, CONFIG_WIFI_RETRIES);
-          }
+      if (wifi_retry_count < CONFIG_WIFI_RETRIES) {
+        wifi_retry_connect();
+        wifi_retry_count++;
+        if (wifi_retry_count >= CONFIG_WIFI_RETRIES) {
+          ESP_LOGE(TAG, "Failed to connect after %d attempts", CONFIG_WIFI_RETRIES);
         } else {
-          xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
+          ESP_LOGI(TAG, "Retry %lu/%d", wifi_retry_count, CONFIG_WIFI_RETRIES);
         }
-        break;
+      } else {
+        xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
       }
+      break;
+    }
 
     case WIFI_EVENT_STA_AUTHMODE_CHANGE: // Triggered by: Authentication mode of the connected access point changes
       ESP_LOGI(TAG, "ESP WiFi Auth Mode changed");
@@ -265,7 +267,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
   }
 }
 
-static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
   if (event_base != IP_EVENT) {
     ESP_LOGW(TAG, "Non-IP event in IP event handler");
     return;
@@ -273,11 +275,11 @@ static void ip_event_handler(void *arg, esp_event_base_t event_base, int32_t eve
 
   switch (event_id) {
     case IP_EVENT_STA_GOT_IP:
-      unit_configuration_t *unit_configuration = unit_config_acquire();
+      unit_configuration_t* unit_configuration = unit_config_acquire();
       unit_configuration->wifi_connected = true;
       unit_config_release();
 
-      ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+      ip_event_got_ip_t* event = (ip_event_got_ip_t*)event_data;
       ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
       wifi_retry_count = 0;
       esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
@@ -353,6 +355,8 @@ static esp_err_t wifi_init() {
     ESP_LOGE("WIFI_MODE", "Failed to get Wi-Fi mode: %s", esp_err_to_name(err));
   }
 
+  stop_dns_server();
+
   ESP_LOGI(TAG, "Initializing TCP/IP stack");
   err = esp_netif_init();
 
@@ -400,11 +404,8 @@ static esp_err_t wifi_init() {
   return err;
 }
 
-// For fail mode - no error handling
 static void setup_ap_mode() {
   wifi_disconnect_cleanup();
-
-  vTaskDelay(30000 / portTICK_PERIOD_MS);
 
   esp_netif_create_default_wifi_ap();
 
@@ -417,7 +418,8 @@ static void setup_ap_mode() {
   wifi_config.ap.ssid_len = strlen(CONFIG_AP_SSID);
   wifi_config.ap.channel = 1;
   wifi_config.ap.max_connection = 1;
-  wifi_config.ap.authmode = (strlen(CONFIG_AP_PASSWORD) == 0) ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+  wifi_config.ap.authmode = strlen(CONFIG_AP_PASSWORD) == 0 ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+  wifi_config.ap.pmf_cfg.required = false;
 
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
@@ -425,6 +427,8 @@ static void setup_ap_mode() {
 
   ESP_LOGI("WiFi", "SoftAP started with SSID: %s", CONFIG_AP_SSID);
   xEventGroupSetBits(system_event_group, START_WEB_AP_WEBPAGE);
+
+//  start_dns_server(); // TODO
 }
 
 void wifi_disconnect_cleanup() {
@@ -466,7 +470,8 @@ void wifi_disconnect_cleanup() {
 void init_wifi_connection_task() {
   // Logic handled via wifi_event_handler
   while (1) {
-    EventBits_t bits = xEventGroupWaitBits(system_event_group, CONNECT_TO_WIFI_AP_REQUEST | GO_INTO_AP_MODE, pdFALSE,
+    EventBits_t bits = xEventGroupWaitBits(system_event_group, CONNECT_TO_WIFI_AP_REQUEST | GO_INTO_AP_MODE | REBOOTING,
+                                           pdFALSE,
                                            pdFALSE, portMAX_DELAY);
 
     if (bits & CONNECT_TO_WIFI_AP_REQUEST) {
@@ -483,6 +488,11 @@ void init_wifi_connection_task() {
       xEventGroupClearBits(system_event_group, GO_INTO_AP_MODE);
       ESP_LOGI(TAG, "Setting WiFi in AP mode");
       setup_ap_mode();
+    }
+
+    if (bits & REBOOTING) {
+      wifi_disconnect_cleanup();
+      stop_dns_server();
       break;
     }
   }

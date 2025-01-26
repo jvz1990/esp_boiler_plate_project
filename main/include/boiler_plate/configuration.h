@@ -39,7 +39,7 @@ typedef struct {
   // Sample user config
   char* unit_name;
   uint8_t unit_name_len;
-} user_configuration_t; // TODO test
+} user_configuration_t;
 
 typedef struct {
   connectivity_configuration_t con_config;

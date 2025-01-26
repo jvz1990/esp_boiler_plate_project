@@ -165,12 +165,12 @@ static esp_err_t update_nvs_from_config() {
     }
 
     // Store the serialized configuration in NVS
-    err = nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, config_data, config_data_size);
+    nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, config_data, config_data_size);
   }
   check_and_free(config_data);
 
   uint8_t* user_config_data = NULL;
-  const size_t user_data_size = sizeof(user_configuration_t) + (sizeof(char) * user_conf->unit_name_len + 1);
+  const size_t user_data_size = sizeof(user_configuration_t) + (user_conf->unit_name_len + 1);
   err = allocate_and_clear_buffer((void**)&user_config_data, user_data_size, TAG, ESP_ERR_NO_MEM);
   // Serialize the user_configuration structure
   if (err == ESP_OK) {
@@ -178,8 +178,10 @@ static esp_err_t update_nvs_from_config() {
 
     // Serialize unit_name into the blob
     if (user_conf->unit_name != NULL && user_conf->unit_name_len > 0) {
-      memcpy(user_config_data + sizeof(user_configuration_t), user_conf->unit_name,
-             (user_conf->unit_name_len + 1) * sizeof(char));
+      memcpy(user_config_data + sizeof(user_configuration_t), user_conf->unit_name, user_conf->unit_name_len);
+      user_config_data[sizeof(user_configuration_t) + user_conf->unit_name_len] = '\0';
+    } else if (user_conf->unit_name_len == 0) {
+      user_config_data[sizeof(user_configuration_t)] = '\0';
     }
 
     // Store the serialized configuration in NVS
@@ -287,15 +289,14 @@ static esp_err_t read_nvs_into_config() {
   memcpy(usr_cfg, config_data, sizeof(user_configuration_t));
 
   if (usr_cfg->unit_name_len > 0) {
-    err = allocate_and_clear_buffer((void**)&usr_cfg->unit_name, usr_cfg->unit_name_len, TAG, ESP_ERR_NO_MEM);
+    err = allocate_and_clear_buffer((void**)&usr_cfg->unit_name, usr_cfg->unit_name_len + 1, TAG, ESP_ERR_NO_MEM);
     if (err != ESP_OK) {
       goto cleanup;
     }
 
-    memcpy(usr_cfg->unit_name, config_data + sizeof(user_configuration_t), usr_cfg->unit_name_len);
+    memcpy(usr_cfg->unit_name, config_data + sizeof(user_configuration_t), usr_cfg->unit_name_len + 1);
+    ESP_LOGI(TAG, "User specified unit name as %s", usr_cfg->unit_name);
   }
-
-  ESP_LOGI(TAG, "ESP name: %s", usr_cfg->unit_name);
 
 cleanup:
   check_and_free(config_data);
@@ -331,7 +332,7 @@ void init_nvs_manager() {
 
   while (1) {
     const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, NVS_CONFIG_WRITE_REQUEST | NVS_CONFIG_READ_REQUEST | GO_INTO_AP_MODE,
+      xEventGroupWaitBits(system_event_group, NVS_CONFIG_WRITE_REQUEST | NVS_CONFIG_READ_REQUEST | REBOOTING,
                           pdFALSE, pdFALSE, portMAX_DELAY);
 
     // Check if the bit was set
@@ -361,7 +362,7 @@ void init_nvs_manager() {
       }
     }
 
-    if (bits & GO_INTO_AP_MODE) {
+    if (bits & REBOOTING) {
       break;
     }
   }

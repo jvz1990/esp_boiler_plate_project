@@ -48,4 +48,11 @@ menu "Project Configuration"
         help
             The name of the ESP Unit. This can be removed as it used for demonstration purposes
 
+    config MAX_ESP_NAME_LEN
+        int "Max ESP Name Length"
+        range 1 255
+        default 100
+        help
+            Maximum allowed length for the unit name in characters
+
 endmenu

@@ -46,3 +46,4 @@ Thumbs.db
 /dependencies.lock
 /sdkconfig.ci
 /sdkconfig.defaults
+/main/cmake-build-debug/
