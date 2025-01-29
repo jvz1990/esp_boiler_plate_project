@@ -218,25 +218,28 @@ static esp_err_t check_https_firmware_version() {
 void init_version_checking_task() {
   while (1) {
     const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION, pdFALSE, pdFALSE, portMAX_DELAY);
+      xEventGroupWaitBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 
-    if (bits & CHECK_HTTPS_FIRMWARE_VERSION) {
-      xEventGroupClearBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION);
+    if (bits & FIRMWARE_REQUEST_VERSION_CHECK_BIT) {
+      xEventGroupClearBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT);
       ESP_LOGI(TAG, "Version check request received.");
       // Check version
       const esp_err_t err = check_https_firmware_version();
       if (err == ESP_OK) {
-        xEventGroupSetBits(system_event_group, FIRMWARE_VERSION_UP_TO_DATE);
+        xEventGroupSetBits(system_event_group, FIRMWARE_VERSION_UP_TO_DATE_BIT);
       } else if (err == ESP_NEW_FIRMWARE_VERSION_FOUND) {
-        xEventGroupSetBits(system_event_group, NEW_FIRMWARE_AVAILABLE);
+        xEventGroupSetBits(system_event_group, NEW_FIRMWARE_AVAILABLE_BIT);
       } else {
         ESP_LOGE(TAG, "Error: %s", esp_err_to_name(err));
       }
     }
 
-    if (bits & GO_INTO_AP_MODE) {
-      break;
+    if (bits & REBOOT_BIT) {
+      ESP_LOGW(TAG, "RECEIVED REBOOT");
+      //break;
     }
+
+    taskYIELD();
   }
 
   vTaskDelete(NULL);

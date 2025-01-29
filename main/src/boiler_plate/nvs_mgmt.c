@@ -110,7 +110,8 @@ static void store_user_default_config_to_nvs() {
   user_conf->unit_name_len = strlen(CONFIG_ESP_NAME) + 1;
 
   check_and_free(user_conf->unit_name);
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&user_conf->unit_name, user_conf->unit_name_len, TAG, ESP_ERR_NO_MEM));
+  ESP_ERROR_CHECK(
+    allocate_and_clear_buffer((void**)&user_conf->unit_name, user_conf->unit_name_len, TAG, ESP_ERR_NO_MEM));
   strlcpy(user_conf->unit_name, CONFIG_ESP_NAME, user_conf->unit_name_len);
 
   // Calculate blob size (struct + string data)
@@ -332,12 +333,12 @@ void init_nvs_manager() {
 
   while (1) {
     const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, NVS_CONFIG_WRITE_REQUEST | NVS_CONFIG_READ_REQUEST | REBOOTING,
+      xEventGroupWaitBits(system_event_group, NVS_REQUEST_WRITE_BIT | NVS_REQUEST_READ_BIT | REBOOT_BIT,
                           pdFALSE, pdFALSE, portMAX_DELAY);
 
     // Check if the bit was set
-    if (bits & NVS_CONFIG_WRITE_REQUEST) {
-      xEventGroupClearBits(system_event_group, NVS_CONFIG_WRITE_REQUEST);
+    if (bits & NVS_REQUEST_WRITE_BIT) {
+      xEventGroupClearBits(system_event_group, NVS_REQUEST_WRITE_BIT);
       ESP_LOGI(TAG, "NVS update request received. Writing new NVS");
 
       // Attempt to update NVS
@@ -345,26 +346,28 @@ void init_nvs_manager() {
         ESP_LOGI(TAG, "Successfully updated NVS");
       } else {
         ESP_LOGE(TAG, "Critical - Updating NVS from config failed. Going into AP mode.");
-        xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
+        xEventGroupSetBits(system_event_group, WIFI_REQUEST_AP_MODE_BIT);
       }
     }
 
-    if (bits & NVS_CONFIG_READ_REQUEST) {
-      xEventGroupClearBits(system_event_group, NVS_CONFIG_READ_REQUEST);
+    if (bits & NVS_REQUEST_READ_BIT) {
+      xEventGroupClearBits(system_event_group, NVS_REQUEST_READ_BIT);
       ESP_LOGI(TAG, "NVS read request received. Copying NVS into unit config");
 
       // Attempt to global config
       if (read_nvs_into_config() == ESP_OK) {
-        xEventGroupSetBits(system_event_group, NVS_CONFIG_READ_SUCCESSFULLY);
+        xEventGroupSetBits(system_event_group, NVS_READ_SUCCESSFULLY_READ_BIT);
       } else {
         ESP_LOGE(TAG, "Critical - Reading NVS into config failed. Going into AP mode.");
-        xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
+        xEventGroupSetBits(system_event_group, WIFI_REQUEST_AP_MODE_BIT);
       }
     }
 
-    if (bits & REBOOTING) {
+    if (bits & REBOOT_BIT) {
+      ESP_LOGW(TAG, "RECEIVED REBOOT");
       break;
     }
+    taskYIELD();
   }
 
   vTaskDelete(NULL);

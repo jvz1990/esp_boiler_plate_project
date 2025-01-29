@@ -16,15 +16,15 @@
 
 #include "dns_redirect.h"
 
+#include "state.h"
+
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_netif_types.h>
-#include <state.h>
+#include <lwip/dns.h>
+#include <lwip/ip4_addr.h>
 #include <lwip/prot/dns.h>
-
-#include "lwip/udp.h"
-#include "lwip/dns.h"
-#include "lwip/ip4_addr.h"
+#include <lwip/udp.h>
 
 static struct udp_pcb* dns_pcb = NULL;
 static ip4_addr_t ap_ip;
@@ -120,17 +120,19 @@ static void dns_server_task() {
   ip4_addr_set_u32(&ap_ip, ip_info.ip.addr);
 
   while (1) {
-    EventBits_t bits = xEventGroupWaitBits(system_event_group, REBOOTING, pdFALSE, pdFALSE, portMAX_DELAY);
-    if (bits & REBOOTING) {
+    EventBits_t bits = xEventGroupWaitBits(system_event_group, REBOOT_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+    if (bits & REBOOT_BIT) {
+      ESP_LOGW(TAG, "RECEIVED REBOOT");
       break;
     }
+    taskYIELD();
   }
 
   udp_remove(dns_pcb);
   dns_pcb = NULL;
-  vTaskDelete(NULL);
   dns_task_handle = NULL;
   ESP_LOGI(TAG, "Done");
+  vTaskDelete(NULL);
 }
 
 void start_dns_server() {

@@ -14,13 +14,9 @@
  * limitations under the License.
  */
 
-#include "boiler_plate_main.h"
+#ifndef FOUNDATION_MAIN_H
+#define FOUNDATION_MAIN_H
 
-#include "freertos/FreeRTOS.h"
+void init_boiler_plate();
 
-#include <stddef.h>
-
-void app_main(void)
-{
-  xTaskCreate(init_boiler_plate, "NVS Manager Task", 2048, NULL, 0, NULL);
-}
+#endif // FOUNDATION_MAIN_H

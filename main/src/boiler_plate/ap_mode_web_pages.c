@@ -24,6 +24,7 @@
 #include <state.h>
 
 #include <cJSON.h>
+#include <esp_timer.h>
 #include <stdbool.h>
 
 static char* TAG = "AP Mode Web Pages";
@@ -65,6 +66,8 @@ static esp_err_t user_handler(httpd_req_t* req);
 static esp_err_t ap_usr_html(httpd_req_t* req);
 static esp_err_t user_post_handler(httpd_req_t* req);
 static esp_err_t reboot_handler(httpd_req_t* req);
+static void restart_timer_callback(void* arg);
+static void cleanup_styles();
 
 static file_info_t files[CONFIG_TYPE_COUNT] = {
   [CSS] = {"/spiffs/ap_pages.css", NULL, 0},
@@ -244,7 +247,7 @@ static esp_err_t wifi_post_handler(httpd_req_t* req) {
   unit_config_release();
 
   send_json_resp(req, 200, "Saved Wi-Fi");
-  xEventGroupSetBits(system_event_group, NVS_CONFIG_WRITE_REQUEST);
+  xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
 
   return ESP_OK;
 }
@@ -289,7 +292,7 @@ static esp_err_t ota_post_handler(httpd_req_t* req) {
 
   cJSON_Delete(d);
   send_json_resp(req, 200, "OTA configuration saved");
-  xEventGroupSetBits(system_event_group, NVS_CONFIG_WRITE_REQUEST);
+  xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
   return ESP_OK;
 }
 
@@ -353,7 +356,7 @@ static esp_err_t user_post_handler(httpd_req_t* req) {
     config->user_config.unit_name_len = len;
 
     unit_config_release();
-    xEventGroupSetBits(system_event_group, NVS_CONFIG_WRITE_REQUEST);
+    xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
   }
 
   send_json_resp(req, 200, unit_name ? "Saved User" : "No changes");
@@ -363,14 +366,8 @@ cleanup:
   return ret;
 }
 
-static esp_err_t reboot_handler(httpd_req_t* req) {
-  xEventGroupSetBits(system_event_group, REBOOTING);
-  httpd_resp_sendstr(req, "Rebooting in 10");
-
-  vTaskDelay(pdMS_TO_TICKS(10000));
+static void restart_timer_callback(void* arg) {
   esp_restart();
-
-  return ESP_OK;
 }
 
 static void cleanup_styles() {
@@ -380,6 +377,37 @@ static void cleanup_styles() {
       files[i].data_ptr = NULL;
     }
   }
+}
+
+static esp_err_t reboot_handler(httpd_req_t* req) {
+  httpd_resp_sendstr(req, "Rebooting in 10");
+
+  xEventGroupSetBits(system_event_group, REBOOT_BIT);
+
+  // Create and start a one-shot timer to restart after 10 seconds
+  esp_timer_handle_t restart_timer;
+  const esp_timer_create_args_t timer_args = {
+    .callback = &restart_timer_callback,
+    .name = "restart_timer"
+};
+
+  esp_err_t err = esp_timer_create(&timer_args, &restart_timer);
+  if (err != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create restart timer");
+    return err;
+  }
+
+  err = esp_timer_start_once(restart_timer, 10 * 1000000); // 10 seconds in microseconds
+  if (err != ESP_OK) {
+    esp_timer_delete(restart_timer);
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to start restart timer");
+    return err;
+  }
+
+  cleanup_styles();
+  esp_vfs_spiffs_unregister("ap_storage");
+
+  return ESP_OK;
 }
 
 void init_ap_web_pages() {
@@ -424,7 +452,7 @@ void init_ap_web_pages() {
 
     ESP_LOGI(TAG, "Serving Web-Pages");
   }
-  vTaskDelete(NULL);
-  cleanup_styles();
+
   ESP_LOGI(TAG, "Done");
+  vTaskDelete(NULL);
 }

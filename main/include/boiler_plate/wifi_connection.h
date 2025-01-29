@@ -18,6 +18,6 @@
 #define WIFI_CONNECTION_H
 
 void init_wifi_connection_task();
-void wifi_disconnect_cleanup();
+//void wifi_disconnect_cleanup();
 
 #endif // WIFI_CONNECTION_H
