@@ -1,0 +1,49 @@
+# Compiled object files
+*.o
+*.obj
+
+# Compiled binary files
+*.elf
+*.bin
+*.hex
+*.map
+
+# Build directories
+/build/
+*.cmake
+CMakeFiles/
+CMakeCache.txt
+Makefile
+
+# SDK and generated files
+sdkconfig
+sdkconfig.old
+partition_table/*.bin
+partition_table/*.csv
+
+# Logs and debug files
+*.log
+*.dbg
+
+# Generated files by the ESP-IDF tools
+*.pyc
+*.pyo
+__pycache__/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# User IDE or editor configuration files
+.vscode/
+.idea/
+*.iml
+/main/certs/ca_cert.pem
+/cmake-build-debug/
+/dependencies.lock
+/sdkconfig.ci
+/sdkconfig.defaults
+/main/cmake-build-debug/

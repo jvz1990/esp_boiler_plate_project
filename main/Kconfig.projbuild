@@ -14,19 +14,19 @@ menu "Project Configuration"
 
     config OTA_URL
         string "OTA URL"
-        default "firmware.bin"
+        default "https://example/firmware"
         help
             The default OTA firmware URL.
 
     config FIRMWARE_VERSION_ENDPOINT
         string "VERSION URL"
-        default "https://example/api/version"
+        default "https://example/version"
         help
             The default firmware version JSON endpoint.
 
     config WIFI_RETRIES
         int "Wifi retries"
-        default 5
+        default 100
         help
             Amount of retries for connecting to wifi before failure.
 
@@ -41,5 +41,18 @@ menu "Project Configuration"
         default ""
         help
             The Wi-Fi password for the ESP32 in AP mode.
+
+    config ESP_NAME
+        string "ESP Name"
+        default "ESP-IDF-BOILERPLATE"
+        help
+            The name of the ESP Unit. This can be removed as it used for demonstration purposes
+
+    config MAX_ESP_NAME_LEN
+        int "Max ESP Name Length"
+        range 1 255
+        default 100
+        help
+            Maximum allowed length for the unit name in characters
 
 endmenu

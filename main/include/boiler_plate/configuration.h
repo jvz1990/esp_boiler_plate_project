@@ -33,6 +33,28 @@ typedef struct {
   wifi_settings_t* wifi_settings;
   char ota_url[MAX_URL_LENGTH];
   char version_url[MAX_URL_LENGTH];
+} connectivity_configuration_t;
+
+typedef struct {
+  // Sample user config
+  char* unit_name;
+  uint8_t unit_name_len;
+} user_configuration_t;
+
+typedef struct {
+  connectivity_configuration_t con_config;
+  bool wifi_connected;
+  user_configuration_t user_config;
 } unit_configuration_t;
+
+typedef enum
+{
+  WIFI_P = 1,
+  DNS_P,
+  AP_WEB_PAGES_P,
+  VERSION_CHECKING_P,
+  OTA_UPDATE_P,
+  NVS_MGMT_P
+} TaskPriorities;
 
 #endif // CONFIGURATION_H
