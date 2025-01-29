@@ -422,8 +422,6 @@ static void setup_ap_mode() {
 
   ESP_LOGI(TAG, "SoftAP started with SSID: %s", CONFIG_AP_SSID);
   xEventGroupSetBits(system_event_group, START_WEB_AP_WEBPAGE);
-
-  //  start_dns_server(); // TODO
 }
 
 void wifi_disconnect_cleanup() {

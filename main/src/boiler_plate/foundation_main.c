@@ -60,8 +60,7 @@ void init_foundation() {
     if (bits & RECEIVED_IP_ADDRESS) {
       xEventGroupClearBits(system_event_group, RECEIVED_IP_ADDRESS);
       ESP_LOGI(TAG, "Connected to Wi-Fi");
-      //xEventGroupSetBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION); // TODO
-      xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
+      xEventGroupSetBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION);
     }
 
     if (bits & NEW_FIRMWARE_AVAILABLE) {
