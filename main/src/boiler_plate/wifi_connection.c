@@ -16,8 +16,6 @@
 
 #include "wifi_connection.h"
 
-#include <captive_portal.h>
-
 #include "allocation.h"
 #include "configuration.h"
 
@@ -70,7 +68,7 @@ static esp_err_t find_strongest_ssid() {
   if (err == ESP_OK) {
     ESP_LOGI(TAG, "Found %d networks", number_of_networks);
 
-    err = allocate_and_clear_buffer((void **)&ap_records, sizeof(wifi_ap_record_t) * number_of_networks, TAG,
+    err = allocate_and_clear_buffer((void**)&ap_records, sizeof(wifi_ap_record_t) * number_of_networks, TAG,
                                     ESP_ERR_NO_MEM);
   }
 
@@ -87,16 +85,16 @@ static esp_err_t find_strongest_ssid() {
     strlcpy(strongest_wifi_password, con_config->wifi_settings[0].password, MAX_PASSWORD_LENGTH);
     wifi_settings_t const* const wifi_settings = con_config->wifi_settings;
     for (int i = 0; i < number_of_networks; i++) {
-      if (strlen((char *)ap_records[i].ssid) == 0)
+      if (strlen((char*)ap_records[i].ssid) == 0)
         continue; // Skip empty SSIDs
       ESP_LOGI(TAG, "SSID: %s, RSSI: %d dBm", (const char *)ap_records[i].ssid, ap_records[i].rssi);
 
       for (size_t j = 0; j < con_config->wifi_configs_count; ++j) {
         // Match scanned SSID with provided Wi-Fi settings
-        if (strncmp((char *)ap_records[i].ssid, wifi_settings[j].ssid, sizeof(ap_records[i].ssid)) == 0) {
+        if (strncmp((char*)ap_records[i].ssid, wifi_settings[j].ssid, sizeof(ap_records[i].ssid)) == 0) {
           if (ap_records[i].rssi > strongest_rssi) {
             strongest_rssi = ap_records[i].rssi;
-            strlcpy(strongest_wifi_ssid, (char *)ap_records[i].ssid, MAX_SSID_LENGTH);
+            strlcpy(strongest_wifi_ssid, (char*)ap_records[i].ssid, MAX_SSID_LENGTH);
             strlcpy(strongest_wifi_password, wifi_settings[j].password, MAX_PASSWORD_LENGTH);
             ssid_found = true;
           }
@@ -115,8 +113,8 @@ static esp_err_t find_strongest_ssid() {
   }
 
   if (err == ESP_OK) {
-    strlcpy((char *)wifi_config.sta.ssid, strongest_wifi_ssid, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, strongest_wifi_password, sizeof(wifi_config.sta.password));
+    strlcpy((char*)wifi_config.sta.ssid, strongest_wifi_ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char*)wifi_config.sta.password, strongest_wifi_password, sizeof(wifi_config.sta.password));
     wifi_config.ap.pmf_cfg.required = true;
     esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config);
   } else {
@@ -130,7 +128,6 @@ static esp_err_t find_strongest_ssid() {
 
 static void wifi_retry_connect() {
   ESP_LOGW(TAG, "Connection failed - retrying in %d ms", WIFI_DELAY_RECONNECT_MS);
-  stop_dns_server();
   esp_wifi_stop();
   esp_wifi_disconnect();
   vTaskDelay(WIFI_DELAY_RECONNECT_MS / portTICK_PERIOD_MS);
@@ -195,7 +192,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 
   switch (event_id) {
     case WIFI_EVENT_STA_START: // triggered by; esp_wifi_start()
-      ESP_LOGI(TAG, "ESP WiFi started, scanning for Access Points");
+      ESP_LOGI(TAG, "ESP Wi-Fi started, scanning for Access Points");
       if (wifi_retry_count == 0) {
         if (start_wifi_ap_scan() != ESP_OK)
           xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
@@ -206,11 +203,11 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
       break;
 
     case WIFI_EVENT_AP_START:
-      ESP_LOGI(TAG, "WiFi initialised, soft starting AP");
+      ESP_LOGI(TAG, "Wi-Fi initialised, soft starting AP");
       break;
 
     case WIFI_EVENT_SCAN_DONE: // triggered by; esp_wifi_scan_start()
-      ESP_LOGI(TAG, "ESP WiFi scan completed, finding strongest SSID");
+      ESP_LOGI(TAG, "ESP Wi-Fi scan completed, finding strongest SSID");
       if (find_strongest_ssid() != ESP_OK)
         xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
       ESP_LOGI(TAG, "Connecting to Wi-Fi AP, SSID: %s", (char *)wifi_config.sta.ssid);
@@ -219,17 +216,17 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
       break;
 
     case WIFI_EVENT_STA_STOP: // triggered by; esp_wifi_stop()
-      ESP_LOGI(TAG, "ESP WiFi stopped");
+      ESP_LOGI(TAG, "ESP Wi-Fi stopped");
       break;
 
     case WIFI_EVENT_STA_CONNECTED: // triggered by; esp_wifi_connect()
-      ESP_LOGI(TAG, "ESP WiFi connected");
+      ESP_LOGI(TAG, "ESP Wi-Fi connected");
       break;
 
     case WIFI_EVENT_STA_DISCONNECTED:
     {
       // triggerd by; esp_wifi_connect(), or connection fails
-      ESP_LOGW(TAG, "ESP WiFi disconnected");
+      ESP_LOGW(TAG, "ESP Wi-Fi disconnected");
       unit_configuration_t* unit_config = unit_config_acquire();
       unit_config->wifi_connected = false;
       unit_config_release();
@@ -254,7 +251,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
     }
 
     case WIFI_EVENT_STA_AUTHMODE_CHANGE: // Triggered by: Authentication mode of the connected access point changes
-      ESP_LOGI(TAG, "ESP WiFi Auth Mode changed");
+      ESP_LOGI(TAG, "ESP Wi-Fi Auth Mode changed");
       break;
 
     case WIFI_EVENT_HOME_CHANNEL_CHANGE:
@@ -262,7 +259,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
       break;
 
     default:
-      ESP_LOGI(TAG, "Unhandled WiFi event: %ld", event_id);
+      ESP_LOGI(TAG, "Unhandled Wi-Fi event: %ld", event_id);
       break;
   }
 }
@@ -355,8 +352,6 @@ static esp_err_t wifi_init() {
     ESP_LOGE("WIFI_MODE", "Failed to get Wi-Fi mode: %s", esp_err_to_name(err));
   }
 
-  stop_dns_server();
-
   ESP_LOGI(TAG, "Initializing TCP/IP stack");
   err = esp_netif_init();
 
@@ -412,8 +407,8 @@ static void setup_ap_mode() {
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   esp_wifi_init(&cfg);
 
-  strlcpy((char *)wifi_config.sta.ssid, CONFIG_AP_SSID, sizeof(wifi_config.sta.ssid));
-  strlcpy((char *)wifi_config.sta.password, CONFIG_AP_PASSWORD, sizeof(wifi_config.sta.password));
+  strlcpy((char*)wifi_config.sta.ssid, CONFIG_AP_SSID, sizeof(wifi_config.sta.ssid));
+  strlcpy((char*)wifi_config.sta.password, CONFIG_AP_PASSWORD, sizeof(wifi_config.sta.password));
 
   wifi_config.ap.ssid_len = strlen(CONFIG_AP_SSID);
   wifi_config.ap.channel = 1;
@@ -425,10 +420,10 @@ static void setup_ap_mode() {
   ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
   ESP_ERROR_CHECK(esp_wifi_start());
 
-  ESP_LOGI("WiFi", "SoftAP started with SSID: %s", CONFIG_AP_SSID);
+  ESP_LOGI(TAG, "SoftAP started with SSID: %s", CONFIG_AP_SSID);
   xEventGroupSetBits(system_event_group, START_WEB_AP_WEBPAGE);
 
-//  start_dns_server(); // TODO
+  //  start_dns_server(); // TODO
 }
 
 void wifi_disconnect_cleanup() {
@@ -436,11 +431,6 @@ void wifi_disconnect_cleanup() {
 
   wifi_retry_count = CONFIG_WIFI_RETRIES;
 
-  // Disconnect and stop Wi-Fi
-  esp_wifi_disconnect();
-  esp_wifi_stop();
-
-  // Clean up event handlers
   if (wifi_event_handler_t != NULL) {
     esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler_t);
     wifi_event_handler_t = NULL;
@@ -451,17 +441,16 @@ void wifi_disconnect_cleanup() {
     ip_event_handler_t = NULL;
   }
 
-  // Deinitialize Wi-Fi and release resources
+  esp_wifi_disconnect();
+  esp_wifi_stop();
+
   esp_wifi_deinit();
 
-  // Destroy all existing netif instances
   esp_netif_destroy(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"));
   esp_netif_destroy(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"));
 
-  // Reset the Wi-Fi configuration
   memset(&wifi_config, 0, sizeof(wifi_config_t));
 
-  // Disable power-saving mode if previously enabled
   esp_wifi_set_ps(WIFI_PS_NONE);
 
   ESP_LOGI(TAG, "Wi-Fi disconnected and resources cleaned up.");
@@ -486,16 +475,16 @@ void init_wifi_connection_task() {
 
     if (bits & GO_INTO_AP_MODE) {
       xEventGroupClearBits(system_event_group, GO_INTO_AP_MODE);
-      ESP_LOGI(TAG, "Setting WiFi in AP mode");
+      ESP_LOGI(TAG, "Setting Wi-Fi in AP mode");
       setup_ap_mode();
     }
 
     if (bits & REBOOTING) {
       wifi_disconnect_cleanup();
-      stop_dns_server();
       break;
     }
   }
 
   vTaskDelete(NULL);
+  ESP_LOGI(TAG, "Done");
 }

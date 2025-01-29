@@ -41,7 +41,7 @@ Thumbs.db
 .vscode/
 .idea/
 *.iml
-/main/ca_cert.pem
+/main/certs/ca_cert.pem
 /cmake-build-debug/
 /dependencies.lock
 /sdkconfig.ci

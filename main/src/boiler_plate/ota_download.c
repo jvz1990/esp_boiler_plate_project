@@ -147,7 +147,7 @@ static esp_err_t perform_ota_update() {
 
 void init_ota_task() {
   if (!is_wifi_connected()) {
-    ESP_LOGE(TAG, "WiFi not connected");
+    ESP_LOGE(TAG, "Wi-Fi not connected");
     vTaskDelete(NULL);
     return;
   }
@@ -166,4 +166,5 @@ void init_ota_task() {
   }
 
   vTaskDelete(NULL);
+  ESP_LOGI(TAG, "Done");
 }

@@ -16,25 +16,18 @@
 
 #include "foundation_main.h"
 
-#include <esp_log.h>
-#include <ap_mode_web_pages.h>
-#include <ota_download.h>
-#include <version_check.h>
-
+#include "ap_mode_web_pages.h"
+#include "dns_redirect.h"
+#include "ota_download.h"
+#include "version_check.h"
 #include "nvs_mgmt.h"
 #include "state.h"
 #include "wifi_connection.h"
 
-static const char* TAG = "FOUNDATION_MAIN";
+#include <esp_log.h>
+#include <esp_spiffs.h>
 
-typedef enum
-{
-  WIFI_P = 1,
-  RESTORE_WEB_PAGE_P,
-  VERSION_CHECKING_P,
-  OTA_UPDATE_P,
-  NVS_MGMT_P
-} TaskPriorities;
+static const char* TAG = "FOUNDATION_MAIN";
 
 void init_foundation() {
   // Initialise shared data
@@ -54,19 +47,21 @@ void init_foundation() {
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(system_event_group,
                                            NVS_CONFIG_READ_SUCCESSFULLY | RECEIVED_IP_ADDRESS |
-                                             NEW_FIRMWARE_AVAILABLE | FIRMWARE_VERSION_UP_TO_DATE | START_WEB_AP_WEBPAGE | REBOOTING,
+                                           NEW_FIRMWARE_AVAILABLE | FIRMWARE_VERSION_UP_TO_DATE | START_WEB_AP_WEBPAGE |
+                                           REBOOTING,
                                            pdFALSE, pdFALSE, portMAX_DELAY);
 
     if (bits & NVS_CONFIG_READ_SUCCESSFULLY) {
       xEventGroupClearBits(system_event_group, NVS_CONFIG_READ_SUCCESSFULLY);
-      ESP_LOGI(TAG, "Sending Connect to WiFi Request");
+      ESP_LOGI(TAG, "Sending Connect to Wi-Fi Request");
       xEventGroupSetBits(system_event_group, CONNECT_TO_WIFI_AP_REQUEST);
     }
 
     if (bits & RECEIVED_IP_ADDRESS) {
       xEventGroupClearBits(system_event_group, RECEIVED_IP_ADDRESS);
-      ESP_LOGI(TAG, "Connected to wifi");
-      xEventGroupSetBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION);
+      ESP_LOGI(TAG, "Connected to Wi-Fi");
+      //xEventGroupSetBits(system_event_group, CHECK_HTTPS_FIRMWARE_VERSION); // TODO
+      xEventGroupSetBits(system_event_group, GO_INTO_AP_MODE);
     }
 
     if (bits & NEW_FIRMWARE_AVAILABLE) {
@@ -82,8 +77,8 @@ void init_foundation() {
 
     if (bits & START_WEB_AP_WEBPAGE) {
       xEventGroupClearBits(system_event_group, START_WEB_AP_WEBPAGE);
-      xTaskCreate(init_fail_mode_web_page, "Fail Mode Web-Page", 8192, NULL, RESTORE_WEB_PAGE_P, NULL);
-      break;
+      xTaskCreate(init_ap_web_pages, "AP Web-Pages", 8192, NULL, AP_WEB_PAGES_P, NULL);
+      start_dns_server();
     }
 
     if (bits & REBOOTING) {
@@ -91,5 +86,7 @@ void init_foundation() {
     }
   }
 
+  esp_vfs_spiffs_unregister("ap_storage");
   vTaskDelete(NULL);
+  ESP_LOGI(TAG, "Done");
 }

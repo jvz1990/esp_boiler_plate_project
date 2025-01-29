@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" name='viewport'
+          content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>
+    <title></title>
+    <link rel="stylesheet" href="/ap_pages.css" />
+</head>
+<body onload="loadContent();">
+<div class='nav'>
+    <a href='/wifi' class="" id="WiFi">Wi-Fi</a>
+    <a href='/ota' class="" id="OTA">OTA</a>
+    <a href='/usercfg' class="" id="UserCfg">User</a>
+</div>
+<div class='container'  id="content">
+
+</div>
+<div class='footer'>
+    <button class='reboot-btn' onclick='rebootDevice()'>REBOOT DEVICE</button>
+</div>
+<script>
+    function rebootDevice() {
+        if (confirm('Are you sure you want to reboot?')) {
+            fetch('/reboot', {method: 'POST'})
+                .then(() => {
+                    alert('Rebooting...');
+                })
+                .catch(() => {
+                })
+        }
+    }

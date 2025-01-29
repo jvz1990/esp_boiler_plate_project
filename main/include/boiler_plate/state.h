@@ -49,7 +49,7 @@ void unit_config_release();
 // Clean up the singleton (optional)
 void unit_config_cleanup();
 
-// Is WiFi connected?
+// Is Wi-Fi connected?
 bool is_wifi_connected();
 
 #endif // STATE_H

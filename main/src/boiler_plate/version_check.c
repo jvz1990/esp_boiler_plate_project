@@ -182,7 +182,7 @@ static esp_err_t get_https_version(char const* const url_version, char* version)
 static esp_err_t check_https_firmware_version() {
   esp_err_t err = {0};
   if (!is_wifi_connected()) {
-    ESP_LOGE(TAG, "WiFi not connected");
+    ESP_LOGE(TAG, "Wi-Fi not connected");
     return ESP_FAIL;
   }
 
@@ -240,4 +240,5 @@ void init_version_checking_task() {
   }
 
   vTaskDelete(NULL);
+  ESP_LOGI(TAG, "Done");
 }

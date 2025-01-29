@@ -368,4 +368,5 @@ void init_nvs_manager() {
   }
 
   vTaskDelete(NULL);
+  ESP_LOGI(TAG, "Done");
 }

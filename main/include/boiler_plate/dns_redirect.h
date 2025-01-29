@@ -19,6 +19,4 @@
 
 void start_dns_server();
 
-void stop_dns_server();
-
 #endif //CAPTIVE_PORTAL_H

@@ -19,13 +19,13 @@
 
 /**
  * If critical* failures occur, the ESP will Access Point mode (see wifi_connection)
- * The WiFi SSID and password is set with AP_SSID & AP_PASSWORD
+ * The Wi-Fi SSID and password is set with AP_SSID & AP_PASSWORD
  *
- * From here, a Web-Page will be hosted where the user can define valid WiFi connection as well as
+ * From here, a Web-Page will be hosted where the user can define valid Wi-Fi connection as well as
  * URL's for version checking and a URL for OTA firmware update.
  *
  * The config will be stored in NVM and the device rebooted
  */
-void init_fail_mode_web_page();
+void init_ap_web_pages();
 
 #endif // FAIL_MODE_WEB_PAGE_H

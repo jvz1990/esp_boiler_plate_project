@@ -17,12 +17,49 @@
 #include "state.h"
 
 #include <esp_log.h>
+#include <esp_partition.h>
+#include <esp_spiffs.h>
+#include <sys/dirent.h>
 
 static const char* TAG = "STATE";
 
 static unit_configuration_t* shared_data = NULL;
 static SemaphoreHandle_t mutex = NULL;
 EventGroupHandle_t system_event_group = NULL;
+
+static void init_spiffs() {
+
+  esp_vfs_spiffs_conf_t conf = {
+    .base_path = "/spiffs",
+    .partition_label = "ap_storage",
+    .max_files = 10, // Adjust as needed
+    .format_if_mount_failed = true
+  };
+
+  esp_err_t ret = esp_vfs_spiffs_register(&conf);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to mount SPIFFS (%s)", esp_err_to_name(ret));
+  }
+
+  size_t total = 0, used = 0;
+  ret = esp_spiffs_info("ap_storage", &total, &used);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+  } else {
+    ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+  }
+
+  DIR* dir = opendir("/spiffs");
+  if (dir != NULL) {
+    struct dirent* ent;
+    while ((ent = readdir(dir)) != NULL) {
+      ESP_LOGI(TAG, "Found file: %s", ent->d_name);
+    }
+    closedir(dir);
+  } else {
+    ESP_LOGE(TAG, "Failed to open directory");
+  }
+}
 
 void unit_config_init() {
   if (shared_data == NULL) {
@@ -40,6 +77,8 @@ void unit_config_init() {
       abort();
     }
   }
+
+  init_spiffs();
 }
 
 unit_configuration_t* unit_config_acquire() {

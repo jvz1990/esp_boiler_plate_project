@@ -47,4 +47,14 @@ typedef struct {
   user_configuration_t user_config;
 } unit_configuration_t;
 
+typedef enum
+{
+  WIFI_P = 1,
+  DNS_P,
+  AP_WEB_PAGES_P,
+  VERSION_CHECKING_P,
+  OTA_UPDATE_P,
+  NVS_MGMT_P
+} TaskPriorities;
+
 #endif // CONFIGURATION_H
