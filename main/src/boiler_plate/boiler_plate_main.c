@@ -72,8 +72,6 @@ void init_boiler_plate() {
     if (bits & FIRMWARE_VERSION_UP_TO_DATE_BIT) {
       xEventGroupClearBits(system_event_group, FIRMWARE_VERSION_UP_TO_DATE_BIT);
       ESP_LOGI(TAG, "Firmware version up to date");
-
-      xEventGroupSetBits(system_event_group, WIFI_REQUEST_AP_MODE_BIT);
     }
 
     if (bits & WIFI_AP_MODE_BIT) {

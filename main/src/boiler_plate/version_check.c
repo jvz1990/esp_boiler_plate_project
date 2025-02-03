@@ -243,6 +243,6 @@ void init_version_checking_task() {
     taskYIELD();
   }
 
-  vTaskDelete(NULL);
   ESP_LOGI(TAG, "Done");
+  vTaskDelete(NULL);
 }
