@@ -21,6 +21,7 @@
 #define MAX_PASSWORD_LENGTH MAX_PASSPHRASE_LEN
 #define MAX_URL_LENGTH 256
 
+#include <esp_log_level.h>
 #include <esp_wifi_types_generic.h>
 
 typedef struct {
@@ -35,6 +36,11 @@ typedef struct {
   char version_url[MAX_URL_LENGTH];
 } connectivity_configuration_t;
 
+typedef struct
+{
+  esp_log_level_t log_level;
+} system_settings_configuration_t;
+
 typedef struct {
   // Sample user config
   char* unit_name;
@@ -44,6 +50,7 @@ typedef struct {
 typedef struct {
   connectivity_configuration_t con_config;
   bool wifi_connected;
+  system_settings_configuration_t sys_config;
   user_configuration_t user_config;
 } unit_configuration_t;
 

@@ -150,7 +150,7 @@ static esp_err_t get_https_version(char const* const url_version, char* version)
 
   const esp_http_client_config_t https_config = {
     .url = url_version,
-    .cert_pem = (char*)server_cert_pem_start,
+    .cert_pem = (char*)server_cert_pem_start, // TODO move cert to spiffs
     .event_handler = version_check_http_event_handler,
     .user_data = local_response_buffer,
     .method = HTTP_METHOD_GET,
@@ -218,7 +218,8 @@ static esp_err_t check_https_firmware_version() {
 void init_version_checking_task() {
   while (1) {
     const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
+      xEventGroupWaitBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT | REBOOT_BIT, pdFALSE, pdFALSE,
+                          portMAX_DELAY);
 
     if (bits & FIRMWARE_REQUEST_VERSION_CHECK_BIT) {
       xEventGroupClearBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT);
@@ -236,12 +237,12 @@ void init_version_checking_task() {
 
     if (bits & REBOOT_BIT) {
       ESP_LOGW(TAG, "RECEIVED REBOOT");
-      //break;
+      break;
     }
 
     taskYIELD();
   }
 
-  vTaskDelete(NULL);
   ESP_LOGI(TAG, "Done");
+  vTaskDelete(NULL);
 }

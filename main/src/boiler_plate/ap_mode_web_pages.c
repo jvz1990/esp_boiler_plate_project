@@ -45,6 +45,8 @@ typedef enum
   AP_OTA_JS,
   AP_USR,
   AP_USR_JS,
+  AP_SYS,
+  AP_SYS_JS,
   DEFAULT_PAGE,
   CONFIG_TYPE_COUNT
 } config_type_t;
@@ -65,6 +67,9 @@ static esp_err_t ota_post_handler(httpd_req_t* req);
 static esp_err_t user_handler(httpd_req_t* req);
 static esp_err_t ap_usr_html(httpd_req_t* req);
 static esp_err_t user_post_handler(httpd_req_t* req);
+static esp_err_t sys_handler(httpd_req_t* req);
+static esp_err_t ap_sys_html(httpd_req_t* req);
+static esp_err_t sys_post_handler(httpd_req_t* req);
 static esp_err_t reboot_handler(httpd_req_t* req);
 static void restart_timer_callback(void* arg);
 static void cleanup_styles();
@@ -77,6 +82,8 @@ static file_info_t files[CONFIG_TYPE_COUNT] = {
   [AP_OTA_JS] = {"/spiffs/ap_ota.js", NULL, 0},
   [AP_USR] = {"/spiffs/ap_usr.html", NULL, 0},
   [AP_USR_JS] = {"/spiffs/ap_usr.js", NULL, 0},
+  [AP_SYS] = {"/spiffs/ap_sys.html", NULL, 0},
+  [AP_SYS_JS] = {"/spiffs/ap_sys.js", NULL, 0},
   [DEFAULT_PAGE] = {"/spiffs/default_page.html", NULL, 0}
 };
 
@@ -366,6 +373,83 @@ cleanup:
   return ret;
 }
 
+static esp_err_t sys_handler(httpd_req_t* req) {
+  httpd_resp_set_type(req, "text/html");
+  config_type_t pages[] = {DEFAULT_PAGE, AP_SYS_JS};
+  return send_pages(req, pages, sizeof(pages) / sizeof(pages[0]));
+}
+
+static esp_err_t ap_sys_html(httpd_req_t* req) {
+  httpd_resp_set_type(req, "text/html");
+  return httpd_resp_sendstr(req, files[AP_SYS].data_ptr);
+}
+
+static esp_err_t sys_post_handler(httpd_req_t* req) {
+  memset(json_buffer, 0, sizeof(json_buffer));
+  int r = httpd_req_recv(req, json_buffer, sizeof(json_buffer) - 1);
+  if (r <= 0) {
+    send_json_resp(req, 400, "Receive error");
+    return ESP_FAIL;
+  }
+  json_buffer[r] = 0;
+
+  cJSON* d = cJSON_Parse(json_buffer);
+  if (!d) {
+    send_json_resp(req, 400, "Invalid JSON");
+    return ESP_FAIL;
+  }
+
+  esp_err_t ret = ESP_OK;
+  char* log_level_ptr = NULL;
+  cJSON* logLevel_item = cJSON_GetObjectItem(d, "logLevel");
+
+  if (cJSON_IsString(logLevel_item) && logLevel_item->valuestring != NULL) {
+    log_level_ptr = logLevel_item->valuestring;
+    size_t len = strlen(log_level_ptr);
+
+    if (len > 15) {
+      // 'ESP_LOG_VERBOSE' is longest
+      send_json_resp(req, 400, "Invalid Log Level too long");
+      ret = ESP_FAIL;
+      goto cleanup;
+    }
+
+    unit_configuration_t* config = unit_config_acquire();
+    if (!config) {
+      send_json_resp(req, 500, "Config lock failed");
+      ret = ESP_FAIL;
+      goto cleanup;
+    }
+
+    system_settings_configuration_t* sys_conf = &(config->sys_config);
+    if (strcmp(log_level_ptr, "ESP_LOG_NONE") == 0) {
+      sys_conf->log_level = ESP_LOG_NONE;
+    } else if (strcmp(log_level_ptr, "ESP_LOG_ERROR") == 0) {
+      sys_conf->log_level = ESP_LOG_ERROR;
+    } else if (strcmp(log_level_ptr, "ESP_LOG_WARN") == 0) {
+      sys_conf->log_level = ESP_LOG_WARN;
+    } else if (strcmp(log_level_ptr, "ESP_LOG_INFO") == 0) {
+      sys_conf->log_level = ESP_LOG_INFO;
+    } else if (strcmp(log_level_ptr, "ESP_LOG_DEBUG") == 0) {
+      sys_conf->log_level = ESP_LOG_DEBUG;
+    } else if (strcmp(log_level_ptr, "ESP_LOG_VERBOSE") == 0) {
+      sys_conf->log_level = ESP_LOG_VERBOSE;
+    } else {
+      ESP_LOGW(TAG, "Could not parse log level %s", log_level_ptr);
+    }
+
+    esp_log_level_set("*", sys_conf->log_level);
+    unit_config_release();
+    xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
+  }
+
+  send_json_resp(req, 200, log_level_ptr ? "Saved Sys Settings" : "No changes");
+
+cleanup:
+  cJSON_Delete(d);
+  return ret;
+}
+
 static void restart_timer_callback(void* arg) {
   esp_restart();
 }
@@ -389,7 +473,7 @@ static esp_err_t reboot_handler(httpd_req_t* req) {
   const esp_timer_create_args_t timer_args = {
     .callback = &restart_timer_callback,
     .name = "restart_timer"
-};
+  };
 
   esp_err_t err = esp_timer_create(&timer_args, &restart_timer);
   if (err != ESP_OK) {
@@ -419,7 +503,7 @@ void init_ap_web_pages() {
 
     httpd_handle_t server;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.max_uri_handlers = 13;
+    cfg.max_uri_handlers = 15;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
 
     httpd_start(&server, &cfg);
@@ -431,6 +515,9 @@ void init_ap_web_pages() {
       // OTA
       {.uri = "/ota", .method = HTTP_GET, .handler = ota_handler},
       {.uri = "/ap_ota.html", .method = HTTP_GET, .handler = ap_ota_html},
+      // Sys
+      {.uri = "/system", .method = HTTP_GET, .handler = sys_handler},
+      {.uri = "/ap_sys.html", .method = HTTP_GET, .handler = ap_sys_html},
       // Usr
       {.uri = "/usercfg", .method = HTTP_GET, .handler = user_handler},
       {.uri = "/ap_usr.html", .method = HTTP_GET, .handler = ap_usr_html},
@@ -441,6 +528,7 @@ void init_ap_web_pages() {
       {.uri = "/reboot", .method = HTTP_POST, .handler = reboot_handler},
       {.uri = "/wifi", .method = HTTP_POST, .handler = wifi_post_handler},
       {.uri = "/ota", .method = HTTP_POST, .handler = ota_post_handler},
+      {.uri = "/system", .method = HTTP_POST, .handler = sys_post_handler},
       {.uri = "/usercfg", .method = HTTP_POST, .handler = user_post_handler},
     };
 

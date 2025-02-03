@@ -29,17 +29,14 @@
 
 static const char* TAG = "NVS MGMT";
 
-// 2 keys in the same namespace. No strong justification to use multiple namespaces
 #define CONFIG_NAMESPACE "config_storage"
 #define UNIT_CONFIG_KEY "unit_config"
-#define USER_CONFIG_KEY "user_config"
 
 static esp_err_t update_nvs_from_config();
 static esp_err_t read_nvs_into_config();
 
 static bool is_config_stored_in_nvs(const char* key);
 static void store_unit_default_config_to_nvs();
-static void store_user_default_config_to_nvs();
 
 // Function not error handled. If error occurs here, something is seriously wrong, and you need to manually re-flash
 static bool is_config_stored_in_nvs(const char* key) {
@@ -65,247 +62,215 @@ static void store_unit_default_config_to_nvs() {
   ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
 
   // Load initial config from menuconfig
-  unit_configuration_t* unit_configuration = unit_config_acquire();
-  connectivity_configuration_t* con_cfg = &(unit_configuration->con_config);
+  unit_configuration_t* unit_cfg = unit_config_acquire();
+  connectivity_configuration_t* con_cfg = &(unit_cfg->con_config);
+  system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
+  user_configuration_t* usr_cfg = &(unit_cfg->user_config);
+
+  // Allocate and initialize wifi_settings
+  con_cfg->wifi_configs_count = 1;
   check_and_free(con_cfg->wifi_settings);
   ESP_ERROR_CHECK(
-    allocate_and_clear_buffer((void**)&con_cfg->wifi_settings, sizeof(wifi_settings_t), TAG, ESP_ERR_NO_MEM));
+    allocate_and_clear_buffer((void**)&con_cfg->wifi_settings, con_cfg->wifi_configs_count * sizeof(wifi_settings_t),
+      TAG, ESP_ERR_NO_MEM));
 
-  // Copy menu defined vars into conf
-  con_cfg->wifi_configs_count = 1;
   strlcpy(con_cfg->wifi_settings[0].ssid, CONFIG_SSID, sizeof(con_cfg->wifi_settings[0].ssid));
   strlcpy(con_cfg->wifi_settings[0].password, CONFIG_PASSWORD, sizeof(con_cfg->wifi_settings[0].password));
   strlcpy(con_cfg->ota_url, CONFIG_OTA_URL, sizeof(con_cfg->ota_url));
   strlcpy(con_cfg->version_url, CONFIG_FIRMWARE_VERSION_ENDPOINT, sizeof(con_cfg->version_url));
 
-  // Serialize the configuration
-  const size_t blob_size = sizeof(connectivity_configuration_t) + sizeof(wifi_settings_t);
+  unit_cfg->wifi_connected = false;
+  sys_cfg->log_level = CONFIG_LOG_DEFAULT_LEVEL;
+
+  // Allocate and copy unit_name
+  check_and_free(usr_cfg->unit_name);
+  usr_cfg->unit_name_len = strlen(CONFIG_ESP_NAME) + 1;
+  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&usr_cfg->unit_name, usr_cfg->unit_name_len, TAG, ESP_ERR_NO_MEM));
+  memcpy(usr_cfg->unit_name, CONFIG_ESP_NAME, usr_cfg->unit_name_len);
+
+  // Compute serialization size
+  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
+  size_t unit_name_size = usr_cfg->unit_name_len;
+  size_t blob_size = sizeof(connectivity_configuration_t) + sizeof(system_settings_configuration_t) + sizeof(bool) +
+    sizeof(uint8_t) + unit_name_size + wifi_settings_size;
+
+  ESP_LOGI(TAG, "Storing default blob of size: %d", blob_size);
+
   uint8_t* serialized_blob = NULL;
   ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
 
-  memcpy(serialized_blob, con_cfg, sizeof(connectivity_configuration_t));
-  memcpy(serialized_blob + sizeof(connectivity_configuration_t), con_cfg->wifi_settings, sizeof(wifi_settings_t));
+  // Serialize data
+  uint8_t* ptr = serialized_blob;
+  memcpy(ptr, con_cfg, sizeof(connectivity_configuration_t));
+  ptr += sizeof(connectivity_configuration_t);
+  memcpy(ptr, con_cfg->wifi_settings, wifi_settings_size);
+  ptr += wifi_settings_size;
+  memcpy(ptr, sys_cfg, sizeof(system_settings_configuration_t));
+  ptr += sizeof(system_settings_configuration_t);
+  memcpy(ptr, &(unit_cfg->wifi_connected), sizeof(bool));
+  ptr += sizeof(bool);
+  memcpy(ptr, &(usr_cfg->unit_name_len), sizeof(uint8_t));
+  ptr += sizeof(uint8_t);
+  memcpy(ptr, usr_cfg->unit_name, unit_name_size);
 
   unit_config_release();
 
-  // Save the serialized blob to NVS
+  // Store in NVS
   ESP_ERROR_CHECK(nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, serialized_blob, blob_size));
   ESP_ERROR_CHECK(nvs_commit(nvs_handle));
+
   ESP_LOGI(TAG, "Default unit configuration stored in NVS.");
 
-  // Clean up
+  // Cleanup
   check_and_free(serialized_blob);
   nvs_close(nvs_handle);
-}
-
-// This can be removed as it used for demonstrational purposes only
-static void store_user_default_config_to_nvs() {
-  nvs_handle_t nvs_handle;
-  ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
-
-  unit_configuration_t* unit_configuration = unit_config_acquire();
-  user_configuration_t* user_conf = &unit_configuration->user_config;
-
-  // Update the user configuration
-  user_conf->unit_name_len = strlen(CONFIG_ESP_NAME) + 1;
-
-  check_and_free(user_conf->unit_name);
-  ESP_ERROR_CHECK(
-    allocate_and_clear_buffer((void**)&user_conf->unit_name, user_conf->unit_name_len, TAG, ESP_ERR_NO_MEM));
-  strlcpy(user_conf->unit_name, CONFIG_ESP_NAME, user_conf->unit_name_len);
-
-  // Calculate blob size (struct + string data)
-  const size_t blob_size = sizeof(user_configuration_t) + user_conf->unit_name_len;
-  uint8_t* serialized_blob = NULL;
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
-
-  // Serialize struct
-  memcpy(serialized_blob, user_conf, sizeof(user_configuration_t));
-
-  // Serialize string data
-  memcpy(serialized_blob + sizeof(user_configuration_t), user_conf->unit_name, user_conf->unit_name_len);
-
-  unit_config_release();
-
-  // Save the serialized blob to NVS
-  ESP_ERROR_CHECK(nvs_set_blob(nvs_handle, USER_CONFIG_KEY, serialized_blob, blob_size));
-  ESP_ERROR_CHECK(nvs_commit(nvs_handle));
-  ESP_LOGI(TAG, "Default user configuration stored in NVS");
-
-  // Clean up
-  nvs_close(nvs_handle);
-  check_and_free(serialized_blob);
 }
 
 // Update NVS from config
 static esp_err_t update_nvs_from_config() {
   nvs_handle_t nvs_handle;
-  esp_err_t err = ESP_OK;
   ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
 
   const unit_configuration_t* unit_cfg = unit_config_acquire();
   const connectivity_configuration_t* con_cfg = &(unit_cfg->con_config);
-  const user_configuration_t* user_conf = &(unit_cfg->user_config);
+  const system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
+  const user_configuration_t* usr_cfg = &(unit_cfg->user_config);
 
-  // Calculate the size of the configuration blob
-  const size_t config_data_size =
-    sizeof(connectivity_configuration_t) + (con_cfg->wifi_configs_count * sizeof(wifi_settings_t));
+  // Calculate serialization size (same as original)
+  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
+  size_t unit_name_size = usr_cfg->unit_name_len;
+  size_t blob_size = sizeof(connectivity_configuration_t) +
+    wifi_settings_size +
+    sizeof(system_settings_configuration_t) +
+    sizeof(bool) +
+    sizeof(uint8_t) +
+    unit_name_size;
 
-  // Allocate memory for the configuration data (unit_configuration + wifi_settings)
-  uint8_t* config_data = NULL;
-  err = allocate_and_clear_buffer((void**)&config_data, config_data_size, TAG, ESP_ERR_NO_MEM);
+  ESP_LOGI(TAG, "Storing current configuration blob of size: %d", blob_size);
 
-  // Serialize the unit_configuration structure
-  if (err == ESP_OK) {
-    memcpy(config_data, con_cfg, sizeof(connectivity_configuration_t));
+  uint8_t* serialized_blob = NULL;
+  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
 
-    // Serialize wifi_settings into the blob
-    if (con_cfg->wifi_configs_count > 0 && con_cfg->wifi_settings != NULL) {
-      memcpy(config_data + sizeof(connectivity_configuration_t), con_cfg->wifi_settings,
-             con_cfg->wifi_configs_count * sizeof(wifi_settings_t));
-    }
+  // Serialization (matches original format exactly)
+  uint8_t* ptr = serialized_blob;
 
-    // Store the serialized configuration in NVS
-    nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, config_data, config_data_size);
-  }
-  check_and_free(config_data);
+  // 1. Base connectivity config
+  memcpy(ptr, con_cfg, sizeof(connectivity_configuration_t));
+  ptr += sizeof(connectivity_configuration_t);
 
-  uint8_t* user_config_data = NULL;
-  const size_t user_data_size = sizeof(user_configuration_t) + (user_conf->unit_name_len + 1);
-  err = allocate_and_clear_buffer((void**)&user_config_data, user_data_size, TAG, ESP_ERR_NO_MEM);
-  // Serialize the user_configuration structure
-  if (err == ESP_OK) {
-    memcpy(user_config_data, user_conf, sizeof(user_configuration_t));
+  // 2. WiFi settings array
+  memcpy(ptr, con_cfg->wifi_settings, wifi_settings_size);
+  ptr += wifi_settings_size;
 
-    // Serialize unit_name into the blob
-    if (user_conf->unit_name != NULL && user_conf->unit_name_len > 0) {
-      memcpy(user_config_data + sizeof(user_configuration_t), user_conf->unit_name, user_conf->unit_name_len);
-      user_config_data[sizeof(user_configuration_t) + user_conf->unit_name_len] = '\0';
-    } else if (user_conf->unit_name_len == 0) {
-      user_config_data[sizeof(user_configuration_t)] = '\0';
-    }
+  // 3. System settings
+  memcpy(ptr, sys_cfg, sizeof(system_settings_configuration_t));
+  ptr += sizeof(system_settings_configuration_t);
 
-    // Store the serialized configuration in NVS
-    err = nvs_set_blob(nvs_handle, USER_CONFIG_KEY, user_config_data, user_data_size);
-  }
-  check_and_free(user_config_data);
+  // 4. Wi-Fi connected status
+  memcpy(ptr, &(unit_cfg->wifi_connected), sizeof(bool));
+  ptr += sizeof(bool);
 
-  // Commit changes and close NVS
-  if (err == ESP_OK) {
-    ESP_ERROR_CHECK(nvs_commit(nvs_handle));
-  }
+  // 5. Unit name length
+  memcpy(ptr, &(usr_cfg->unit_name_len), sizeof(uint8_t));
+  ptr += sizeof(uint8_t);
 
-  nvs_close(nvs_handle);
+  // 6. Unit name string
+  memcpy(ptr, usr_cfg->unit_name, unit_name_size);
+
   unit_config_release();
 
-  if (err != ESP_OK)
-    ESP_LOGE(TAG, "Error: %s", esp_err_to_name(err));
+  // Store in NVS
+  ESP_ERROR_CHECK(nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, serialized_blob, blob_size));
+  ESP_ERROR_CHECK(nvs_commit(nvs_handle));
 
-  return err;
+  // Cleanup
+  check_and_free(serialized_blob);
+  nvs_close(nvs_handle);
+  ESP_LOGI(TAG, "Current unit configuration stored in NVS");
+
+  return ESP_OK;
 }
 
 // Deserialize NVS blobs into config
 static esp_err_t read_nvs_into_config() {
-  esp_err_t err = ESP_OK;
-  nvs_handle_t nvs_handle = 0;
-  uint8_t* config_data = NULL;
+  nvs_handle_t nvs_handle;
+  ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READONLY, &nvs_handle));
 
-  // Open NVS namespace
-  err = nvs_open(CONFIG_NAMESPACE, NVS_READONLY, &nvs_handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to open NVS namespace");
-    goto cleanup;
+  // Get blob size
+  size_t blob_size = 0;
+  esp_err_t ret = nvs_get_blob(nvs_handle, UNIT_CONFIG_KEY, NULL, &blob_size);
+  if (ret != ESP_OK && ret != ESP_ERR_NVS_NOT_FOUND) {
+    ESP_ERROR_CHECK(ret);
   }
+  if (blob_size == 0) {
+    nvs_close(nvs_handle);
+    return ESP_ERR_NOT_FOUND;
+  }
+
+  uint8_t* serialized_blob = NULL;
+  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
+  ESP_ERROR_CHECK(nvs_get_blob(nvs_handle, UNIT_CONFIG_KEY, serialized_blob, &blob_size));
+
+  ESP_LOGI(TAG, "Loaded blob of size %d.", blob_size);
 
   unit_configuration_t* unit_cfg = unit_config_acquire();
   connectivity_configuration_t* con_cfg = &(unit_cfg->con_config);
+  system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
   user_configuration_t* usr_cfg = &(unit_cfg->user_config);
 
-  // Read connectivity configuration blob
-  size_t required_size = 0;
-  err = nvs_get_blob(nvs_handle, UNIT_CONFIG_KEY, NULL, &required_size);
-  if (err != ESP_OK || required_size == 0) {
-    ESP_LOGE(TAG, "Failed to get connectivity configuration from NVS or invalid size");
-    goto cleanup;
+  uint8_t* ptr = serialized_blob;
+
+  // 1. Deserialize connectivity config (except pointer)
+  memcpy(con_cfg, ptr, sizeof(connectivity_configuration_t));
+  ptr += sizeof(connectivity_configuration_t);
+
+  // Reset pointer before allocation
+  con_cfg->wifi_settings = NULL;
+
+  // 2. Deserialize wifi settings array
+  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
+  if (wifi_settings_size > (blob_size - (ptr - serialized_blob))) {
+    ESP_LOGE(TAG, "Invalid wifi config size");
+    return ESP_ERR_INVALID_SIZE;
   }
 
-  err = allocate_and_clear_buffer((void**)&config_data, required_size, TAG, ESP_ERR_NO_MEM);
-  if (err != ESP_OK) {
-    goto cleanup;
-  }
-
-  err = nvs_get_blob(nvs_handle, UNIT_CONFIG_KEY, config_data, &required_size);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to read connectivity configuration from NVS");
-    goto cleanup;
-  }
-
-  // Deserialize connectivity configuration
   check_and_free(con_cfg->wifi_settings);
-  memcpy(con_cfg, config_data, sizeof(connectivity_configuration_t));
+  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&con_cfg->wifi_settings, wifi_settings_size, TAG, ESP_ERR_NO_MEM));
+  memcpy(con_cfg->wifi_settings, ptr, wifi_settings_size);
+  ptr += wifi_settings_size;
 
-  if (con_cfg->wifi_configs_count > 0) {
-    err = allocate_and_clear_buffer((void**)&con_cfg->wifi_settings,
-                                    con_cfg->wifi_configs_count * sizeof(wifi_settings_t), TAG, ESP_ERR_NO_MEM);
-    if (err != ESP_OK) {
-      goto cleanup;
-    }
+  // 3. Deserialize system settings
+  memcpy(sys_cfg, ptr, sizeof(system_settings_configuration_t));
+  ptr += sizeof(system_settings_configuration_t);
 
-    memcpy(con_cfg->wifi_settings, config_data + sizeof(connectivity_configuration_t),
-           con_cfg->wifi_configs_count * sizeof(wifi_settings_t));
-  }
+  // 4. Deserialize wifi_connected
+  memcpy(&(unit_cfg->wifi_connected), ptr, sizeof(bool));
+  ptr += sizeof(bool);
 
-  check_and_free(config_data);
-  config_data = NULL;
+  // 5. Deserialize unit name length
+  uint8_t unit_name_len;
+  memcpy(&unit_name_len, ptr, sizeof(uint8_t));
+  ptr += sizeof(uint8_t);
 
-  // Log connectivity configuration
-  ESP_LOGI(TAG, "Loaded %d Wi-Fi configurations from NVS", (int)con_cfg->wifi_configs_count);
-  ESP_LOGI(TAG, "Loaded OTA URL: %s", con_cfg->ota_url);
-  for (size_t i = 0; i < con_cfg->wifi_configs_count; i++) {
-    ESP_LOGD(TAG, "Config %d: SSID=%s, Password=%s", (int)i, con_cfg->wifi_settings[i].ssid,
-             con_cfg->wifi_settings[i].password);
-  }
-
-  // Read user configuration blob
-  required_size = 0;
-  err = nvs_get_blob(nvs_handle, USER_CONFIG_KEY, NULL, &required_size);
-  if (err != ESP_OK || required_size == 0) {
-    ESP_LOGE(TAG, "Failed to get user configuration from NVS or invalid size");
-    goto cleanup;
-  }
-
-  err = allocate_and_clear_buffer((void**)&config_data, required_size, TAG, ESP_ERR_NO_MEM);
-  if (err != ESP_OK) {
-    goto cleanup;
-  }
-
-  err = nvs_get_blob(nvs_handle, USER_CONFIG_KEY, config_data, &required_size);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to read user configuration from NVS");
-    goto cleanup;
+  // 6. Deserialize unit name
+  if (unit_name_len > (blob_size - (ptr - serialized_blob))) {
+    ESP_LOGE(TAG, "Invalid unit name length");
+    return ESP_ERR_INVALID_SIZE;
   }
 
   check_and_free(usr_cfg->unit_name);
-  usr_cfg->unit_name_len = 0;
-  memcpy(usr_cfg, config_data, sizeof(user_configuration_t));
+  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&usr_cfg->unit_name, unit_name_len, TAG, ESP_ERR_NO_MEM));
+  memcpy(usr_cfg->unit_name, ptr, unit_name_len);
+  usr_cfg->unit_name_len = unit_name_len;
 
-  if (usr_cfg->unit_name_len > 0) {
-    err = allocate_and_clear_buffer((void**)&usr_cfg->unit_name, usr_cfg->unit_name_len + 1, TAG, ESP_ERR_NO_MEM);
-    if (err != ESP_OK) {
-      goto cleanup;
-    }
+  esp_log_level_set("*", sys_cfg->log_level);
 
-    memcpy(usr_cfg->unit_name, config_data + sizeof(user_configuration_t), usr_cfg->unit_name_len + 1);
-    ESP_LOGI(TAG, "User specified unit name as %s", usr_cfg->unit_name);
-  }
-
-cleanup:
-  check_and_free(config_data);
-  if (nvs_handle != 0) {
-    nvs_close(nvs_handle);
-  }
   unit_config_release();
-  return err;
+  check_and_free(serialized_blob);
+  nvs_close(nvs_handle);
+  ESP_LOGI(TAG, "Unit configuration loaded from NVS");
+
+  return ESP_OK;
 }
 
 static void initialise_nvs_flash() {
@@ -324,9 +289,6 @@ void init_nvs_manager() {
   // Store default configuration if not already in NVS
   if (!is_config_stored_in_nvs(UNIT_CONFIG_KEY)) {
     store_unit_default_config_to_nvs();
-  }
-  if (!is_config_stored_in_nvs(USER_CONFIG_KEY)) {
-    store_user_default_config_to_nvs();
   }
 
   ESP_LOGI(TAG, "NVS manager initialized");
@@ -354,7 +316,7 @@ void init_nvs_manager() {
       xEventGroupClearBits(system_event_group, NVS_REQUEST_READ_BIT);
       ESP_LOGI(TAG, "NVS read request received. Copying NVS into unit config");
 
-      // Attempt to global config
+      // Attempt to update global config
       if (read_nvs_into_config() == ESP_OK) {
         xEventGroupSetBits(system_event_group, NVS_READ_SUCCESSFULLY_READ_BIT);
       } else {
@@ -370,6 +332,6 @@ void init_nvs_manager() {
     taskYIELD();
   }
 
-  vTaskDelete(NULL);
   ESP_LOGI(TAG, "Done");
+  vTaskDelete(NULL);
 }

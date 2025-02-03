@@ -137,7 +137,7 @@ static esp_err_t perform_ota_update() {
 
   if (err == ESP_OK && esp_https_ota_finish(ota_handle) == ESP_OK) {
     ESP_LOGI(TAG, "OTA successful, restarting...");
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    vTaskDelay(portTICK_PERIOD_MS(1000));
     esp_restart();
   }
 
