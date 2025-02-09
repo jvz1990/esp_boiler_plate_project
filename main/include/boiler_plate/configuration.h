@@ -17,23 +17,32 @@
 #ifndef CONFIGURATION_H
 #define CONFIGURATION_H
 
-#define MAX_SSID_LENGTH MAX_SSID_LEN
-#define MAX_PASSWORD_LENGTH MAX_PASSPHRASE_LEN
 #define MAX_URL_LENGTH 256
 
 #include <esp_log_level.h>
-#include <esp_wifi_types_generic.h>
+#include <stddef.h>
+#include <stdint.h>
 
-typedef struct {
-  char ssid[MAX_SSID_LENGTH];
-  char password[MAX_PASSWORD_LENGTH];
+#define CONFIGURATION_VERSION 0
+
+#pragma pack(push, 1)
+
+typedef struct
+{
+  uint8_t ssid_len;
+  uint8_t password_len;
+  char* ssid;
+  char* password;
 } wifi_settings_t;
 
-typedef struct {
-  uint32_t wifi_configs_count;
+typedef struct
+{
+  uint8_t wifi_settings_count;
+  uint8_t ota_url_len;
+  uint8_t version_url_len;
+  char* ota_url;
+  char* version_url;
   wifi_settings_t* wifi_settings;
-  char ota_url[MAX_URL_LENGTH];
-  char version_url[MAX_URL_LENGTH];
 } connectivity_configuration_t;
 
 typedef struct
@@ -41,18 +50,21 @@ typedef struct
   esp_log_level_t log_level;
 } system_settings_configuration_t;
 
-typedef struct {
-  // Sample user config
+typedef struct
+{
   char* unit_name;
   uint8_t unit_name_len;
 } user_configuration_t;
 
-typedef struct {
+typedef struct
+{
+  uint8_t configuration_version;
   connectivity_configuration_t con_config;
-  bool wifi_connected;
   system_settings_configuration_t sys_config;
   user_configuration_t user_config;
 } unit_configuration_t;
+
+#pragma pack(pop)
 
 typedef enum
 {

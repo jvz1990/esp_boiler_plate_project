@@ -37,8 +37,8 @@ typedef struct
   esp_timer_handle_t retry_timer;
   uint32_t retry_count;
   wifi_config_t wifi_config;
-  char ap_ssid[MAX_SSID_LENGTH];
-  char ap_password[MAX_PASSWORD_LENGTH];
+  char ap_ssid[MAX_SSID_LEN];
+  char ap_password[MAX_PASSPHRASE_LEN];
   esp_event_handler_instance_t wifi_event_handler_t;
   esp_event_handler_instance_t ip_event_handler_t;
 } wifi_manager_t;
@@ -90,7 +90,7 @@ static esp_err_t find_strongest_ssid() {
   bool found = false;
 
   for (int i = 0; i < ap_count; i++) {
-    for (size_t j = 0; j < config->con_config.wifi_configs_count; j++) {
+    for (size_t j = 0; j < config->con_config.wifi_settings_count; j++) {
       const wifi_settings_t* setting = &config->con_config.wifi_settings[j];
 
       if (strncmp((char*)ap_records[i].ssid, setting->ssid,
@@ -98,9 +98,9 @@ static esp_err_t find_strongest_ssid() {
         if (ap_records[i].rssi > best_rssi) {
           best_rssi = ap_records[i].rssi;
           strlcpy((char*)wifi_manager->wifi_config.sta.ssid,
-                  setting->ssid, MAX_SSID_LENGTH);
+                  setting->ssid, MAX_SSID_LEN);
           strlcpy((char*)wifi_manager->wifi_config.sta.password,
-                  setting->password, MAX_PASSWORD_LENGTH);
+                  setting->password, MAX_PASSPHRASE_LEN);
           found = true;
         }
       }
@@ -209,7 +209,6 @@ static void ip_event_handler(void* arg, esp_event_base_t event_base,
     ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
 
     unit_configuration_t* config = unit_config_acquire();
-    config->wifi_connected = true;
     unit_config_release();
 
     wm->retry_count = 0;
@@ -264,8 +263,8 @@ static void enter_ap_mode() {
   };
 
   //  const unit_configuration_t *config = unit_config_acquire();
-  strlcpy((char*)ap_config.ap.ssid, CONFIG_AP_SSID, MAX_SSID_LENGTH); // TODO allow AP wifi config
-  strlcpy((char*)ap_config.ap.password, CONFIG_AP_PASSWORD, MAX_PASSWORD_LENGTH); // TODO allow AP wifi config
+  strlcpy((char*)ap_config.ap.ssid, CONFIG_AP_SSID, MAX_SSID_LEN); // TODO allow AP wifi config
+  strlcpy((char*)ap_config.ap.password, CONFIG_AP_PASSWORD, MAX_PASSPHRASE_LEN); // TODO allow AP wifi config
   //   unit_config_release();
 
   esp_wifi_set_mode(WIFI_MODE_AP);

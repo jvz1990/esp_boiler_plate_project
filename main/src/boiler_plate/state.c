@@ -110,11 +110,6 @@ void unit_config_cleanup() {
 }
 
 bool is_wifi_connected() {
-  bool is_connected = false;
-
-  const unit_configuration_t* shared_data = unit_config_acquire();
-  is_connected = shared_data->wifi_connected;
-  unit_config_release();
-
-  return is_connected;
+  const EventBits_t bits = xEventGroupGetBits(system_event_group);
+  return bits & WIFI_CONNECTED_BIT;
 }
