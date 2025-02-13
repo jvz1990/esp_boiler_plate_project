@@ -41,14 +41,14 @@ const uint8_t* deserialize_wifi_settings(wifi_settings_t* settings, const uint8_
   ptr = deserialize_block(ptr, &settings->password_len, sizeof(settings->password_len));
 
   if (settings->ssid_len > 0) {
-    settings->ssid = malloc(settings->ssid_len);
+    settings->ssid = calloc(settings->ssid_len + 1, 1);
     ptr = deserialize_block(ptr, settings->ssid, settings->ssid_len);
   } else {
     settings->ssid = NULL;
   }
 
   if (settings->password_len > 0) {
-    settings->password = malloc(settings->password_len);
+    settings->password = calloc(settings->password_len + 1, 1);
     ptr = deserialize_block(ptr, settings->password, settings->password_len);
   } else {
     settings->password = NULL;
@@ -105,7 +105,7 @@ const uint8_t* deserialize_user_configuration(user_configuration_t* config, cons
   ptr = deserialize_block(ptr, &config->unit_name_len, sizeof(config->unit_name_len));
 
   if (config->unit_name_len > 0) {
-    config->unit_name = malloc(config->unit_name_len);
+    config->unit_name = calloc(config->unit_name_len, 1);
     ptr = deserialize_block(ptr, config->unit_name, config->unit_name_len);
   } else {
     config->unit_name = NULL;
