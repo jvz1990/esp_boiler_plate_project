@@ -31,40 +31,44 @@ static ip4_addr_t ap_ip;
 static char* TAG = "DNS Redirect";
 static TaskHandle_t dns_task_handle = NULL;
 
-struct dns_header
-{
-  u16_t id;
-  u16_t flags;
-  u16_t qdcount;
-  u16_t ancount;
-  u16_t nscount;
-  u16_t arcount;
-} __attribute__((packed));
+#pragma pack(push, 1)
 
-struct dns_question
+typedef struct
 {
-  u16_t qtype;
-  u16_t qclass;
-} __attribute__((packed));
+  uint16_t id;
+  uint16_t flags;
+  uint16_t qdcount;
+  uint16_t ancount;
+  uint16_t nscount;
+  uint16_t arcount;
+} dns_header;
 
-struct dns_answer
+typedef struct
 {
-  u16_t name;
-  u16_t type;
-  u16_t class;
-  u32_t ttl;
-  u16_t length;
+  uint16_t qtype;
+  uint16_t qclass;
+} dns_question;
+
+typedef struct
+{
+  uint16_t name;
+  uint16_t type;
+  uint16_t class;
+  uint32_t ttl;
+  uint16_t length;
   ip4_addr_t addr;
-} __attribute__((packed));
+} dns_answer;
+
+#pragma pack(pop)
 
 static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
                               const ip_addr_t* addr, u16_t port) {
-  if (!p || p->tot_len < sizeof(struct dns_header)) {
+  if (!p || p->tot_len < sizeof(dns_header)) {
     if (p) pbuf_free(p);
     return;
   }
 
-  struct pbuf* resp = pbuf_alloc(PBUF_TRANSPORT, p->tot_len + sizeof(struct dns_answer), PBUF_RAM);
+  struct pbuf* resp = pbuf_alloc(PBUF_TRANSPORT, p->tot_len + sizeof(dns_answer), PBUF_RAM);
   if (!resp) {
     pbuf_free(p);
     return;
@@ -72,7 +76,7 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
 
   pbuf_copy(resp, p);
 
-  struct dns_header* hdr = (struct dns_header*)resp->payload;
+  dns_header* hdr = (dns_header*)resp->payload;
   hdr->flags = PP_HTONS(0x8400);
   hdr->ancount = PP_HTONS(1);
 
@@ -81,7 +85,7 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
   while (payload[qname_len] != 0 && qname_len < resp->tot_len) qname_len++;
   qname_len += 5;
 
-  struct dns_answer ans = {
+  dns_answer ans = {
     .name = PP_HTONS(0xC00C),
     .type = PP_HTONS(DNS_RRTYPE_A),
     .class = PP_HTONS(DNS_RRCLASS_IN),

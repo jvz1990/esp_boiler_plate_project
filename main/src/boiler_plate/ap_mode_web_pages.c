@@ -250,7 +250,7 @@ static esp_err_t wifi_post_handler(httpd_req_t* req) {
   connectivity_configuration_t* con_config = &(unit_configuration->con_config);
   free(con_config->wifi_settings);
   con_config->wifi_settings = wifi_settings;
-  unit_configuration->con_config.wifi_configs_count = element_count;
+  unit_configuration->con_config.wifi_settings_count = element_count;
   unit_config_release();
 
   send_json_resp(req, 200, "Saved Wi-Fi");

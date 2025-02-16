@@ -14,11 +14,12 @@
  * limitations under the License.
  */
 
-#include "boiler_plate_main.h"
+#ifndef DESERIALISATION_H
+#define DESERIALISATION_H
 
-#include "freertos/FreeRTOS.h"
+#include "configuration.h"
+#include <stdint.h>
 
-void app_main(void)
-{
-  xTaskCreate(init_boiler_plate, "NVS Manager Task", 2048, NULL, 0, NULL);
-}
+const uint8_t* deserialize_unit_configuration(unit_configuration_t* config, const uint8_t* buffer);
+
+#endif //DESERIALISATION_H

@@ -16,9 +16,10 @@
 
 #include "nvs_mgmt.h"
 
-#include <allocation.h>
-
+#include "allocation.h"
 #include "configuration.h"
+#include "deserialisation.h"
+#include "serialisation.h"
 #include "state.h"
 
 #include <esp_log.h>
@@ -67,62 +68,90 @@ static void store_unit_default_config_to_nvs() {
   system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
   user_configuration_t* usr_cfg = &(unit_cfg->user_config);
 
-  // Allocate and initialize wifi_settings
-  con_cfg->wifi_configs_count = 1;
-  check_and_free(con_cfg->wifi_settings);
-  ESP_ERROR_CHECK(
-    allocate_and_clear_buffer((void**)&con_cfg->wifi_settings, con_cfg->wifi_configs_count * sizeof(wifi_settings_t),
-      TAG, ESP_ERR_NO_MEM));
+  // Initialize connectivity configuration
+  con_cfg->wifi_settings_count = 1;
+  check_and_free(con_cfg->wifi_settings); // Free existing memory
+  con_cfg->wifi_settings = malloc(sizeof(wifi_settings_t)); // Allocate for one wifi setting
+  if (!con_cfg->wifi_settings) {
+    ESP_LOGE(TAG, "Failed to allocate memory for wifi_settings");
+    goto cleanup;
+  }
+  memset(con_cfg->wifi_settings, 0, sizeof(wifi_settings_t));
 
-  strlcpy(con_cfg->wifi_settings[0].ssid, CONFIG_SSID, sizeof(con_cfg->wifi_settings[0].ssid));
-  strlcpy(con_cfg->wifi_settings[0].password, CONFIG_PASSWORD, sizeof(con_cfg->wifi_settings[0].password));
-  strlcpy(con_cfg->ota_url, CONFIG_OTA_URL, sizeof(con_cfg->ota_url));
-  strlcpy(con_cfg->version_url, CONFIG_FIRMWARE_VERSION_ENDPOINT, sizeof(con_cfg->version_url));
+  // Allocate and initialize ssid and password
+  con_cfg->wifi_settings->ssid_len = strlen(CONFIG_SSID);
+  con_cfg->wifi_settings->password_len = strlen(CONFIG_PASSWORD);
+  con_cfg->wifi_settings->ssid = malloc(con_cfg->wifi_settings->ssid_len + 1);
+  con_cfg->wifi_settings->password = malloc(con_cfg->wifi_settings->password_len + 1);
+  if (!con_cfg->wifi_settings->ssid || !con_cfg->wifi_settings->password) {
+    ESP_LOGE(TAG, "Failed to allocate memory for ssid or password");
+    goto cleanup;
+  }
+  strlcpy(con_cfg->wifi_settings->ssid, CONFIG_SSID, con_cfg->wifi_settings->ssid_len + 1);
+  strlcpy(con_cfg->wifi_settings->password, CONFIG_PASSWORD, con_cfg->wifi_settings->password_len + 1);
 
-  unit_cfg->wifi_connected = false;
+  // Allocate and initialize ota_url and version_url
+  con_cfg->ota_url_len = strlen(CONFIG_OTA_URL);
+  con_cfg->version_url_len = strlen(CONFIG_FIRMWARE_VERSION_ENDPOINT);
+  con_cfg->ota_url = malloc(con_cfg->ota_url_len + 1);
+  con_cfg->version_url = malloc(con_cfg->version_url_len + 1);
+  if (!con_cfg->ota_url || !con_cfg->version_url) {
+    ESP_LOGE(TAG, "Failed to allocate memory for ota_url or version_url");
+    goto cleanup;
+  }
+  strlcpy(con_cfg->ota_url, CONFIG_OTA_URL, con_cfg->ota_url_len + 1);
+  strlcpy(con_cfg->version_url, CONFIG_FIRMWARE_VERSION_ENDPOINT, con_cfg->version_url_len + 1);
+
+  // Initialize system settings configuration
   sys_cfg->log_level = CONFIG_LOG_DEFAULT_LEVEL;
 
-  // Allocate and copy unit_name
+  // Initialize user configuration
   check_and_free(usr_cfg->unit_name);
-  usr_cfg->unit_name_len = strlen(CONFIG_ESP_NAME) + 1;
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&usr_cfg->unit_name, usr_cfg->unit_name_len, TAG, ESP_ERR_NO_MEM));
-  memcpy(usr_cfg->unit_name, CONFIG_ESP_NAME, usr_cfg->unit_name_len);
+  usr_cfg->unit_name_len = strlen(CONFIG_ESP_NAME);
+  usr_cfg->unit_name = malloc(usr_cfg->unit_name_len + 1);
+  if (!usr_cfg->unit_name) {
+    ESP_LOGE(TAG, "Failed to allocate memory for unit_name");
+    goto cleanup;
+  }
+  strlcpy(usr_cfg->unit_name, CONFIG_ESP_NAME, usr_cfg->unit_name_len + 1);
 
-  // Compute serialization size
-  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
-  size_t unit_name_size = usr_cfg->unit_name_len;
-  size_t blob_size = sizeof(connectivity_configuration_t) + sizeof(system_settings_configuration_t) + sizeof(bool) +
-    sizeof(uint8_t) + unit_name_size + wifi_settings_size;
+  // Calculate the size of the serialized data
+  const size_t buffer_size = calculate_unit_configuration_size(unit_cfg);
 
-  ESP_LOGI(TAG, "Storing default blob of size: %d", blob_size);
+  // Allocate buffer dynamically
+  uint8_t* buffer = calloc(buffer_size, sizeof(uint8_t));
+  if (!buffer) {
+    ESP_LOGE(TAG, "Failed to allocate memory for serialization buffer");
+    goto cleanup;
+  }
 
-  uint8_t* serialized_blob = NULL;
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
-
-  // Serialize data
-  uint8_t* ptr = serialized_blob;
-  memcpy(ptr, con_cfg, sizeof(connectivity_configuration_t));
-  ptr += sizeof(connectivity_configuration_t);
-  memcpy(ptr, con_cfg->wifi_settings, wifi_settings_size);
-  ptr += wifi_settings_size;
-  memcpy(ptr, sys_cfg, sizeof(system_settings_configuration_t));
-  ptr += sizeof(system_settings_configuration_t);
-  memcpy(ptr, &(unit_cfg->wifi_connected), sizeof(bool));
-  ptr += sizeof(bool);
-  memcpy(ptr, &(usr_cfg->unit_name_len), sizeof(uint8_t));
-  ptr += sizeof(uint8_t);
-  memcpy(ptr, usr_cfg->unit_name, unit_name_size);
-
-  unit_config_release();
+  // Serialize the configuration
+  size_t serialized_size = serialize_unit_configuration(unit_cfg, buffer);
+  if (serialized_size != buffer_size) {
+    ESP_LOGE(TAG, "Serialization size mismatch: expected %d, got %d", buffer_size, serialized_size);
+    free(buffer);
+    goto cleanup;
+  }
 
   // Store in NVS
-  ESP_ERROR_CHECK(nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, serialized_blob, blob_size));
+  ESP_ERROR_CHECK(nvs_set_blob(nvs_handle, UNIT_CONFIG_KEY, buffer, serialized_size));
   ESP_ERROR_CHECK(nvs_commit(nvs_handle));
-
   ESP_LOGI(TAG, "Default unit configuration stored in NVS.");
 
-  // Cleanup
-  check_and_free(serialized_blob);
+  // Free the buffer
+  free(buffer);
+
+cleanup:
+  // Cleanup dynamically allocated memory
+  if (con_cfg->wifi_settings) {
+    free(con_cfg->wifi_settings->ssid);
+    free(con_cfg->wifi_settings->password);
+    free(con_cfg->wifi_settings);
+  }
+  free(con_cfg->ota_url);
+  free(con_cfg->version_url);
+  free(usr_cfg->unit_name);
+  unit_config_release();
   nvs_close(nvs_handle);
 }
 
@@ -132,50 +161,12 @@ static esp_err_t update_nvs_from_config() {
   ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
 
   const unit_configuration_t* unit_cfg = unit_config_acquire();
-  const connectivity_configuration_t* con_cfg = &(unit_cfg->con_config);
-  const system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
-  const user_configuration_t* usr_cfg = &(unit_cfg->user_config);
-
-  // Calculate serialization size (same as original)
-  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
-  size_t unit_name_size = usr_cfg->unit_name_len;
-  size_t blob_size = sizeof(connectivity_configuration_t) +
-    wifi_settings_size +
-    sizeof(system_settings_configuration_t) +
-    sizeof(bool) +
-    sizeof(uint8_t) +
-    unit_name_size;
-
-  ESP_LOGI(TAG, "Storing current configuration blob of size: %d", blob_size);
+  const size_t blob_size = calculate_unit_configuration_size(unit_cfg);
 
   uint8_t* serialized_blob = NULL;
   ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
 
-  // Serialization (matches original format exactly)
-  uint8_t* ptr = serialized_blob;
-
-  // 1. Base connectivity config
-  memcpy(ptr, con_cfg, sizeof(connectivity_configuration_t));
-  ptr += sizeof(connectivity_configuration_t);
-
-  // 2. WiFi settings array
-  memcpy(ptr, con_cfg->wifi_settings, wifi_settings_size);
-  ptr += wifi_settings_size;
-
-  // 3. System settings
-  memcpy(ptr, sys_cfg, sizeof(system_settings_configuration_t));
-  ptr += sizeof(system_settings_configuration_t);
-
-  // 4. Wi-Fi connected status
-  memcpy(ptr, &(unit_cfg->wifi_connected), sizeof(bool));
-  ptr += sizeof(bool);
-
-  // 5. Unit name length
-  memcpy(ptr, &(usr_cfg->unit_name_len), sizeof(uint8_t));
-  ptr += sizeof(uint8_t);
-
-  // 6. Unit name string
-  memcpy(ptr, usr_cfg->unit_name, unit_name_size);
+  serialize_unit_configuration(unit_cfg, serialized_blob);
 
   unit_config_release();
 
@@ -214,56 +205,9 @@ static esp_err_t read_nvs_into_config() {
   ESP_LOGI(TAG, "Loaded blob of size %d.", blob_size);
 
   unit_configuration_t* unit_cfg = unit_config_acquire();
-  connectivity_configuration_t* con_cfg = &(unit_cfg->con_config);
-  system_settings_configuration_t* sys_cfg = &(unit_cfg->sys_config);
-  user_configuration_t* usr_cfg = &(unit_cfg->user_config);
+  deserialize_unit_configuration(unit_cfg, serialized_blob);
 
-  uint8_t* ptr = serialized_blob;
-
-  // 1. Deserialize connectivity config (except pointer)
-  memcpy(con_cfg, ptr, sizeof(connectivity_configuration_t));
-  ptr += sizeof(connectivity_configuration_t);
-
-  // Reset pointer before allocation
-  con_cfg->wifi_settings = NULL;
-
-  // 2. Deserialize wifi settings array
-  size_t wifi_settings_size = con_cfg->wifi_configs_count * sizeof(wifi_settings_t);
-  if (wifi_settings_size > (blob_size - (ptr - serialized_blob))) {
-    ESP_LOGE(TAG, "Invalid wifi config size");
-    return ESP_ERR_INVALID_SIZE;
-  }
-
-  check_and_free(con_cfg->wifi_settings);
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&con_cfg->wifi_settings, wifi_settings_size, TAG, ESP_ERR_NO_MEM));
-  memcpy(con_cfg->wifi_settings, ptr, wifi_settings_size);
-  ptr += wifi_settings_size;
-
-  // 3. Deserialize system settings
-  memcpy(sys_cfg, ptr, sizeof(system_settings_configuration_t));
-  ptr += sizeof(system_settings_configuration_t);
-
-  // 4. Deserialize wifi_connected
-  memcpy(&(unit_cfg->wifi_connected), ptr, sizeof(bool));
-  ptr += sizeof(bool);
-
-  // 5. Deserialize unit name length
-  uint8_t unit_name_len;
-  memcpy(&unit_name_len, ptr, sizeof(uint8_t));
-  ptr += sizeof(uint8_t);
-
-  // 6. Deserialize unit name
-  if (unit_name_len > (blob_size - (ptr - serialized_blob))) {
-    ESP_LOGE(TAG, "Invalid unit name length");
-    return ESP_ERR_INVALID_SIZE;
-  }
-
-  check_and_free(usr_cfg->unit_name);
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&usr_cfg->unit_name, unit_name_len, TAG, ESP_ERR_NO_MEM));
-  memcpy(usr_cfg->unit_name, ptr, unit_name_len);
-  usr_cfg->unit_name_len = unit_name_len;
-
-  esp_log_level_set("*", sys_cfg->log_level);
+  esp_log_level_set("*", unit_cfg->sys_config.log_level);
 
   unit_config_release();
   check_and_free(serialized_blob);

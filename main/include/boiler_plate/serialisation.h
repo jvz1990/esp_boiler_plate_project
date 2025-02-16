@@ -14,11 +14,16 @@
  * limitations under the License.
  */
 
-#include "boiler_plate_main.h"
+#ifndef SERIALISATION_H
+#define SERIALISATION_H
 
-#include "freertos/FreeRTOS.h"
+#include <stddef.h>
+#include <stdint.h>
 
-void app_main(void)
-{
-  xTaskCreate(init_boiler_plate, "NVS Manager Task", 2048, NULL, 0, NULL);
-}
+#include "configuration.h"
+
+size_t serialize_unit_configuration(const unit_configuration_t* config, uint8_t* buffer);
+
+size_t calculate_unit_configuration_size(const unit_configuration_t* config);
+
+#endif //SERIALISATION_H
