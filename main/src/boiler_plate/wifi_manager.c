@@ -155,7 +155,6 @@ void wifi_manager_destroy(wifi_manager_t* manager) {
     vEventGroupDelete(manager->state_event_group);
   }
 
-
   if (manager->current_state != WIFI_MANAGER_STATE_NONE) {
     esp_wifi_disconnect();
     esp_wifi_stop();
