@@ -14,8 +14,31 @@
  * limitations under the License.
  */
 
-#ifndef FAIL_MODE_WEB_PAGE_H
-#define FAIL_MODE_WEB_PAGE_H
+#ifndef WEB_PAGE_MANAGER_H
+#define WEB_PAGE_MANAGER_H
+
+#include <freertos/FreeRTOS.h>
+#include <esp_bit_defs.h>
+#include <portmacro.h>
+
+typedef enum
+{
+  WEB_PAGE_STATE_NONE = BIT0,
+  WEB_PAGE_STATE_SERVING = BIT1
+} web_page_manager_state_t;
+
+typedef enum
+{
+  WEB_PAGE_STATE_NONE_REQUEST = BIT0,
+  WEB_PAGE_STATE_SERVING_REQUEST = BIT1
+} web_page_manager_state_request_t;
+
+typedef struct web_page_manager web_page_manager_t;
+
+web_page_manager_t* web_page_manager_create(UBaseType_t priority);
+void web_page_manager_destroy(web_page_manager_t *web_page_manager);
+esp_err_t web_page_manager_request_state(web_page_manager_t* manager, web_page_manager_state_request_t new_state);
+void web_page_manager_wait_until_state(web_page_manager_t const * manager, web_page_manager_state_t web_page_manager_state);
 
 /**
  * If critical* failures occur, the ESP will Access Point mode (see wifi_connection)
@@ -26,6 +49,5 @@
  *
  * The config will be stored in NVM and the device rebooted
  */
-void init_ap_web_pages();
 
-#endif // FAIL_MODE_WEB_PAGE_H
+#endif // WEB_PAGE_MANAGER_H
