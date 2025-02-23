@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "nvs_mgmt.h"
+#include "nvs_manager.h"
 
 #include "allocation.h"
 #include "configuration.h"
@@ -28,18 +28,206 @@
 #include <nvs_flash.h>
 #include <string.h>
 
-static const char* TAG = "NVS MGMT";
+struct nvs_manager
+{
+  nvs_manager_state_t current_state;
+  EventGroupHandle_t request_event_group;
+  EventGroupHandle_t state_event_group;
+  TaskHandle_t fsm_task_handle;
+
+  bool nvs_flash_inited;
+};
+
+static const char* TAG = "NVS Manager";
 
 #define CONFIG_NAMESPACE "config_storage"
 #define UNIT_CONFIG_KEY "unit_config"
+
+static void fsm_task(void* arg);
+static esp_err_t transition_to_state(nvs_manager_t* manager, nvs_manager_state_request_t state_request);
 
 static esp_err_t update_nvs_from_config();
 static esp_err_t read_nvs_into_config();
 
 static bool is_config_stored_in_nvs(const char* key);
 static void store_unit_default_config_to_nvs();
+static esp_err_t initialise_nvs_flash();
+static esp_err_t deinitialise_nvs_flash();
 
-// Function not error handled. If error occurs here, something is seriously wrong, and you need to manually re-flash
+nvs_manager_t* nvs_manager_create(UBaseType_t priority) {
+  nvs_manager_t* manager = calloc(1, sizeof(nvs_manager_t));
+  if (manager == NULL) {
+    ESP_LOGE(TAG, "Unable to create nvs manager");
+    return NULL;
+  }
+
+  *manager = (nvs_manager_t){
+    .current_state = NVS_STATE_NONE,
+    .request_event_group = xEventGroupCreate(),
+    .state_event_group = xEventGroupCreate(),
+    .fsm_task_handle = NULL,
+
+    .nvs_flash_inited = false
+  };
+
+  if (manager->request_event_group == NULL || manager->state_event_group == NULL) {
+    free(manager);
+    ESP_LOGE(TAG, "Unable to create nvs manager");
+    return NULL;
+  }
+
+  xTaskCreate(
+    fsm_task,
+    TAG,
+    2048,
+    manager,
+    priority,
+    &manager->fsm_task_handle
+    );
+
+  return manager;
+}
+
+void nvs_manager_destroy(nvs_manager_t* const manager) {
+  if (manager == NULL) return;
+
+  if (manager->fsm_task_handle) {
+    vTaskDelete(manager->fsm_task_handle);
+  }
+  if (manager->request_event_group) {
+    vEventGroupDelete(manager->request_event_group);
+  }
+  if (manager->state_event_group) {
+    vEventGroupDelete(manager->state_event_group);
+  }
+
+  if (manager->nvs_flash_inited) {
+    deinitialise_nvs_flash();
+  }
+
+  free(manager);
+}
+
+esp_err_t nvs_manager_request_state(nvs_manager_t* const manager, nvs_manager_state_request_t new_state) {
+  if (manager == NULL) return ESP_ERR_NOT_FOUND;
+
+  xEventGroupSetBits(manager->request_event_group, new_state);
+
+  return ESP_OK;
+}
+
+void nvs_manager_wait_until_state(nvs_manager_t const* const manager, nvs_manager_state_t wait_state) {
+  if (manager == NULL) return;
+
+  xEventGroupWaitBits(manager->state_event_group, wait_state, pdFALSE, pdFALSE, portMAX_DELAY);
+}
+
+static void fsm_task(void* arg) {
+  nvs_manager_t* manager = arg;
+
+  if (manager == NULL) {
+    ESP_LOGE(TAG, "No nvs manager passed to fsm task");
+    vTaskDelete(NULL);
+    return;
+  }
+
+
+  if (manager->request_event_group == NULL) {
+    ESP_LOGE(TAG, "Request event group not created");
+    vTaskDelete(NULL);
+    return;
+  }
+
+  while (1) {
+    EventBits_t bits = xEventGroupWaitBits(manager->request_event_group,
+                                           NVS_STATE_NONE_REQUEST |
+                                           NVS_STATE_READY_REQUEST |
+                                           NVS_STATE_READ_REQUEST |
+                                           NVS_STATE_WRITE_REQUEST, pdTRUE, pdFALSE, portMAX_DELAY);
+
+    nvs_manager_state_request_t requested_state = NVS_STATE_NONE_REQUEST;
+    if (bits & NVS_STATE_NONE_REQUEST) {
+      requested_state = NVS_STATE_NONE_REQUEST;
+    } else if (bits & NVS_STATE_READY_REQUEST) {
+      requested_state = NVS_STATE_READY_REQUEST;
+    } else if (bits & NVS_STATE_READ_REQUEST) {
+      requested_state = NVS_STATE_READ_REQUEST;
+    } else if (bits & NVS_STATE_WRITE_REQUEST) {
+      requested_state = NVS_STATE_WRITE_REQUEST;
+    } else {
+      ESP_LOGE(TAG, "Unknown request state: %lu, ", bits);
+      continue;
+    }
+
+    if (transition_to_state(manager, requested_state) == ESP_OK) {
+      ESP_LOGI(TAG, "Successful state transition: %lu", bits);
+    } else {
+      ESP_LOGI(TAG, "Unsuccessful state transition: %lu", bits);
+    }
+
+    taskYIELD();
+  }
+
+  vTaskDelete(NULL);
+}
+
+esp_err_t transition_to_state(nvs_manager_t* const manager, nvs_manager_state_request_t state_request) {
+  // Validation
+  if (manager->current_state == NVS_BUSY) {
+    ESP_LOGW(TAG, "NVS busy - cannot perform request");
+    return ESP_FAIL;
+  }
+
+  if ((manager->current_state == NVS_STATE_NONE) &&
+    ((state_request == NVS_STATE_READ_REQUEST) || (state_request == NVS_STATE_WRITE_REQUEST))) {
+    ESP_LOGE(TAG, "State change requested denied. Need to request ready first");
+    return ESP_FAIL;
+  }
+
+  esp_err_t ret = ESP_OK;
+  if (manager->current_state == NVS_STATE_NONE && state_request == NVS_STATE_READY_REQUEST) {
+    ret = initialise_nvs_flash();
+    if (ret == ESP_OK) {
+      if (!is_config_stored_in_nvs(UNIT_CONFIG_KEY)) {
+        store_unit_default_config_to_nvs();
+      }
+      read_nvs_into_config();
+      manager->nvs_flash_inited = true;
+      manager->current_state = NVS_READY;
+      xEventGroupSetBits(manager->state_event_group, NVS_READY);
+    }
+  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_READ_REQUEST) {
+    manager->current_state = NVS_BUSY;
+    xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
+    ret = read_nvs_into_config();
+    manager->current_state = NVS_READY;
+    xEventGroupSetBits(manager->state_event_group, NVS_READY);
+  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_WRITE_REQUEST) {
+    manager->current_state = NVS_BUSY;
+    xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
+    ret = update_nvs_from_config();
+    manager->current_state = NVS_READY;
+    xEventGroupSetBits(manager->state_event_group, NVS_READY);
+  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_NONE_REQUEST) {
+    manager->current_state = NVS_BUSY;
+    xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
+    ret = deinitialise_nvs_flash();
+    if (ret == ESP_OK) {
+      manager->current_state = NVS_STATE_NONE;
+      xEventGroupSetBits(manager->state_event_group, NVS_STATE_NONE);
+      manager->nvs_flash_inited = false;
+    } else {
+      manager->current_state = NVS_READY;
+      xEventGroupSetBits(manager->state_event_group, NVS_READY);
+    }
+  } else {
+    ESP_LOGE(TAG, "State change requested denied - unhandled");
+    ret = ESP_FAIL;
+  }
+
+  return ret;
+}
+
 static bool is_config_stored_in_nvs(const char* key) {
   nvs_handle_t nvs_handle;
   ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
@@ -57,7 +245,6 @@ static bool is_config_stored_in_nvs(const char* key) {
   return err == ESP_OK;
 }
 
-// Function not error handled. If error occurs here, something is seriously wrong, and you need to manually re-flash
 static void store_unit_default_config_to_nvs() {
   nvs_handle_t nvs_handle;
   ESP_ERROR_CHECK(nvs_open(CONFIG_NAMESPACE, NVS_READWRITE, &nvs_handle));
@@ -217,65 +404,28 @@ static esp_err_t read_nvs_into_config() {
   return ESP_OK;
 }
 
-static void initialise_nvs_flash() {
-  const esp_err_t ret = nvs_flash_init();
+static esp_err_t initialise_nvs_flash() {
+  esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
     ESP_LOGW(TAG, "NVS partition was truncated, erasing...");
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ESP_ERROR_CHECK(nvs_flash_init());
+
+    ret = nvs_flash_erase();
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "NVS flash erase failed");
+      return ret;
+    }
+
+    ret = nvs_flash_init();
+    if (ret != ESP_OK) {
+      ESP_LOGE(TAG, "NVS flash init failed");
+    }
   }
 
-  ESP_ERROR_CHECK(ret);
+  return ret;
 }
 
-void init_nvs_manager() {
-  initialise_nvs_flash();
-  // Store default configuration if not already in NVS
-  if (!is_config_stored_in_nvs(UNIT_CONFIG_KEY)) {
-    store_unit_default_config_to_nvs();
-  }
+static esp_err_t deinitialise_nvs_flash() {
+  esp_err_t ret = nvs_flash_deinit();
 
-  ESP_LOGI(TAG, "NVS manager initialized");
-
-  while (1) {
-    const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, NVS_REQUEST_WRITE_BIT | NVS_REQUEST_READ_BIT | REBOOT_BIT,
-                          pdFALSE, pdFALSE, portMAX_DELAY);
-
-    // Check if the bit was set
-    if (bits & NVS_REQUEST_WRITE_BIT) {
-      xEventGroupClearBits(system_event_group, NVS_REQUEST_WRITE_BIT);
-      ESP_LOGI(TAG, "NVS update request received. Writing new NVS");
-
-      // Attempt to update NVS
-      if (update_nvs_from_config() == ESP_OK) {
-        ESP_LOGI(TAG, "Successfully updated NVS");
-      } else {
-        ESP_LOGE(TAG, "Critical - Updating NVS from config failed. Going into AP mode.");
-        xEventGroupSetBits(system_event_group, WIFI_REQUEST_AP_MODE_BIT);
-      }
-    }
-
-    if (bits & NVS_REQUEST_READ_BIT) {
-      xEventGroupClearBits(system_event_group, NVS_REQUEST_READ_BIT);
-      ESP_LOGI(TAG, "NVS read request received. Copying NVS into unit config");
-
-      // Attempt to update global config
-      if (read_nvs_into_config() == ESP_OK) {
-        xEventGroupSetBits(system_event_group, NVS_READ_SUCCESSFULLY_READ_BIT);
-      } else {
-        ESP_LOGE(TAG, "Critical - Reading NVS into config failed. Going into AP mode.");
-        xEventGroupSetBits(system_event_group, WIFI_REQUEST_AP_MODE_BIT);
-      }
-    }
-
-    if (bits & REBOOT_BIT) {
-      ESP_LOGW(TAG, "RECEIVED REBOOT");
-      break;
-    }
-    taskYIELD();
-  }
-
-  ESP_LOGI(TAG, "Done");
-  vTaskDelete(NULL);
+  return ret;
 }

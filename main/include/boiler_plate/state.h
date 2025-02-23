@@ -56,19 +56,39 @@ typedef enum
     REBOOT_BIT = (1 << 15),
 } misc_event_bits_t;
 
+typedef struct nvs_manager nvs_manager_t;
+typedef struct wifi_manager wifi_manager_t;
+typedef struct web_page_manager web_page_manager_t;
+
+typedef struct {
+    nvs_manager_t* nvs_manager;
+    wifi_manager_t* wifi_manager;
+    web_page_manager_t* web_page_manager;
+} managers_t;
+
 // Initialize the singleton (called once)
 void unit_config_init();
 
 // Acquire the singleton (blocks if another task is using it)
 unit_configuration_t* unit_config_acquire();
 
+managers_t* managers_acquire();
+
+void set_nvs_manager(nvs_manager_t* nvs_manager);
+
+void set_wifi_manager(wifi_manager_t* wifi_manager);
+
+void set_web_page_manager(web_page_manager_t* web_page_manager);
+
 // Release the singleton (must be called after acquire)
 void unit_config_release();
+
+void managers_release();
 
 // Clean up the singleton (optional)
 void unit_config_cleanup();
 
 // Is Wi-Fi connected?
-bool is_wifi_connected();
+bool is_wifi_connected(); // #TODO refactor remove
 
 #endif // STATE_H

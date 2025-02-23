@@ -31,7 +31,7 @@
 
 #define WIFI_DELAY_RECONNECT_MS 30000 // #TODO refactor into configurable settings
 
-static const char* TAG = "WiFiManager";
+static const char* TAG = "Wi-Fi Manager";
 
 struct wifi_manager
 {
@@ -190,7 +190,7 @@ static void retry_timer_callback(void* arg) {
 void wifi_manager_wait_until_state(wifi_manager_t const* const manager, const wifi_manager_state_t wifi_state) {
   if (manager == NULL) return;
 
-  xEventGroupWaitBits(manager->state_event_group, wifi_state, pdFALSE, pdTRUE, portMAX_DELAY);
+  xEventGroupWaitBits(manager->state_event_group, wifi_state, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
 static esp_err_t find_strongest_ssid(wifi_manager_t const* const manager) {
@@ -231,6 +231,8 @@ static esp_err_t find_strongest_ssid(wifi_manager_t const* const manager) {
   free(ap_records);
   if (found) {
     ESP_LOGI(TAG, "Found network SSID [%s] at RSSI dBm [%d]", (char*)manager->sta_config.sta.ssid, best_rssi);
+  } else {
+    ESP_LOGW(TAG, "No network SSID found");
   }
   return found ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
@@ -266,12 +268,21 @@ static esp_err_t connect_to_sta(wifi_manager_t* const wifi_manager) {
   ESP_LOGI(TAG, "Connecting to STA");
 
   esp_err_t err = find_strongest_ssid(wifi_manager);
-  if (err != ESP_OK) return err;
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to find strongest SSID");
+    return err;
+  }
 
   err = esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_manager->sta_config);
-  if (err != ESP_OK) return err;
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to set STA config");
+    return err;
+  }
 
   err = esp_wifi_connect();
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to connect to STA");
+  }
   return err;
 }
 
@@ -383,7 +394,7 @@ static void ip_event_handler(void* arg, esp_event_base_t event_base, int32_t eve
 }
 
 static esp_err_t start_wifi_scan(wifi_manager_t const* const wifi_manager) {
-  ESP_LOGI(TAG, "Starting WiFi scan");
+  ESP_LOGI(TAG, "Starting Wi-Fi scan");
   const wifi_scan_config_t scan_config = {
     .ssid = NULL,
     .bssid = NULL,

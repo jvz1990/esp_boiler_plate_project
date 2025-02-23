@@ -62,7 +62,7 @@ struct web_page_manager
   httpd_uri_t handlers[15];
 };
 
-static char* TAG = "AP Mode Web Pages";
+static char* TAG = "Web-page Manager";
 
 static const char* const TEXT_HTML = "text/html"; // TYPE
 static const char* const TEXT_CSS = "text/css"; // TYPE
@@ -95,7 +95,10 @@ static esp_err_t cleanup_web_page_manager(web_page_manager_t* manager);
 
 web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
   web_page_manager_t* manager = calloc(1, sizeof(web_page_manager_t));
-  if (!manager) return NULL;
+  if (manager == NULL) {
+    ESP_LOGE(TAG, "Unable to create web page manager");
+    return NULL;
+  }
 
   *manager = (web_page_manager_t){
     .current_state = WEB_PAGE_STATE_NONE,
@@ -159,17 +162,25 @@ web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
   return manager;
 }
 
-void web_page_manager_destroy(web_page_manager_t* const web_page_manager) {
-  if (!web_page_manager) return;
+void web_page_manager_destroy(web_page_manager_t* const manager) {
+  if (!manager) return;
 
-  cleanup_web_page_manager(web_page_manager);
+  cleanup_web_page_manager(manager);
 
-  vTaskDelete(web_page_manager->fsm_task_handle);
+  if (manager->fsm_task_handle) {
+    vTaskDelete(manager->fsm_task_handle);
+  }
+  if (manager->request_event_group) {
+    vEventGroupDelete(manager->request_event_group);
+  }
+  if (manager->state_event_group) {
+    vEventGroupDelete(manager->state_event_group);
+  }
 
-  free(web_page_manager);
+  free(manager);
 }
 
-esp_err_t web_page_manager_request_state(web_page_manager_t* manager, web_page_manager_state_request_t new_state) {
+esp_err_t web_page_manager_request_state(web_page_manager_t* const manager, web_page_manager_state_request_t new_state) {
   if (manager == NULL) return ESP_ERR_NOT_FOUND;
 
   xEventGroupSetBits(manager->request_event_group, new_state);
@@ -177,23 +188,23 @@ esp_err_t web_page_manager_request_state(web_page_manager_t* manager, web_page_m
   return ESP_OK;
 }
 
-void web_page_manager_wait_until_state(web_page_manager_t const* manager, web_page_manager_state_t web_page_manager_state) {
+void web_page_manager_wait_until_state(web_page_manager_t const* const manager, web_page_manager_state_t wait_state) {
   if (manager == NULL) return;
 
-  xEventGroupWaitBits(manager->state_event_group, web_page_manager_state, pdFALSE, pdTRUE, portMAX_DELAY);
+  xEventGroupWaitBits(manager->state_event_group, wait_state, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
 static void fsm_task(void* arg) {
   web_page_manager_t* manager = arg;
 
   if (manager == NULL) {
-    ESP_LOGE(TAG, "No web page manager");
+    ESP_LOGE(TAG, "No web page manager passed to fsm task");
     vTaskDelete(NULL);
     return;
   }
 
   if (manager->request_event_group == NULL) {
-    ESP_LOGE(TAG, "Request event group already in use");
+    ESP_LOGE(TAG, "Request event group not created");
     vTaskDelete(NULL);
     return;
   }

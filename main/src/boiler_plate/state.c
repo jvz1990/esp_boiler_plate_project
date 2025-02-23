@@ -24,11 +24,11 @@
 static const char* TAG = "STATE";
 
 static unit_configuration_t* shared_data = NULL;
+static managers_t* shared_managers = NULL;
 static SemaphoreHandle_t mutex = NULL;
 EventGroupHandle_t system_event_group = NULL;
 
 static void init_spiffs() {
-
   esp_vfs_spiffs_conf_t conf = {
     .base_path = "/spiffs",
     .partition_label = "ap_storage",
@@ -78,12 +78,20 @@ void unit_config_init() {
     }
   }
 
+  if (shared_managers == NULL) {
+    shared_managers = (managers_t*)calloc(1, sizeof(managers_t));
+    if (shared_managers == NULL) {
+      ESP_LOGE(TAG, "Failed to allocate memory for managers_t");
+      abort();
+    }
+  }
+
   init_spiffs();
 }
 
 unit_configuration_t* unit_config_acquire() {
   if (shared_data == NULL) {
-    ESP_LOGE(TAG, " Shared-Data struct not initialized");
+    ESP_LOGE(TAG, "Shared-Data struct not initialized");
     return NULL;
   }
 
@@ -92,7 +100,53 @@ unit_configuration_t* unit_config_acquire() {
   return shared_data;
 }
 
+managers_t* managers_acquire() {
+  if (shared_managers == NULL) {
+    ESP_LOGE(TAG, "Shared-Managers struct not initialized");
+    return NULL;
+  }
+
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  return shared_managers;
+}
+
+void set_nvs_manager(nvs_manager_t* const nvs_manager) {
+  if (shared_managers == NULL)
+    ESP_LOGE(TAG, "Shared-Managers struct not initialized");
+  xSemaphoreTake(mutex, portMAX_DELAY);
+
+  shared_managers->nvs_manager = nvs_manager;
+
+  xSemaphoreGive(mutex);
+}
+
+void set_wifi_manager(wifi_manager_t* const wifi_manager) {
+  if (shared_managers == NULL)
+    ESP_LOGE(TAG, "Shared-Managers struct not initialized");
+  xSemaphoreTake(mutex, portMAX_DELAY);
+
+  shared_managers->wifi_manager = wifi_manager;
+
+  xSemaphoreGive(mutex);
+}
+
+void set_web_page_manager(web_page_manager_t* const web_page_manager) {
+  if (shared_managers == NULL)
+    ESP_LOGE(TAG, "Shared-Managers struct not initialized");
+  xSemaphoreTake(mutex, portMAX_DELAY);
+
+  shared_managers->web_page_manager = web_page_manager;
+
+  xSemaphoreGive(mutex);
+}
+
 void unit_config_release() {
+  if (mutex != NULL) {
+    xSemaphoreGive(mutex);
+  }
+}
+
+void managers_release() {
   if (mutex != NULL) {
     xSemaphoreGive(mutex);
   }

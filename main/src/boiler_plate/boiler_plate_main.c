@@ -16,16 +16,12 @@
 
 #include "boiler_plate_main.h"
 
-#include "ap_mode_web_pages.h"
-#include "dns_redirect.h"
-#include "ota_download.h"
-#include "version_check.h"
-#include "nvs_mgmt.h"
+#include "nvs_manager.h"
 #include "state.h"
-#include "wifi_connection.h"
+#include "web_page_manager.h"
+#include "wifi_manager.h"
 
 #include <esp_log.h>
-#include <esp_spiffs.h>
 
 static const char* TAG = "Boiler Plate main";
 
@@ -34,30 +30,45 @@ void init_boiler_plate() {
   unit_config_init();
 
   // Initialise shared system event group
-  system_event_group = xEventGroupCreate();
-  assert(system_event_group != NULL);
+  /*system_event_group = xEventGroupCreate(); // #TODO remove
+  assert(system_event_group != NULL);*/
 
   // Create Tasks
-  xTaskCreate(init_nvs_manager, "NVS Manager Task", 2048, NULL, NVS_MGMT_P, NULL);
-  xTaskCreate(init_wifi_connection_task, "WIFI Connection Task", 4096, NULL, WIFI_P, NULL);
-  xTaskCreate(init_version_checking_task, "HTTPS Version Checking Task", 4096, NULL, VERSION_CHECKING_P, NULL);
+  nvs_manager_t* nvs_manager = nvs_manager_create(NVS_MGMT_P);
+  wifi_manager_t* wifi_manager = wifi_manager_create(WIFI_P);
+  web_page_manager_t* web_page_manager = web_page_manager_create(AP_WEB_PAGES_P);
 
-  xEventGroupSetBits(system_event_group, NVS_REQUEST_READ_BIT);
+  set_nvs_manager(nvs_manager);
+  set_wifi_manager(wifi_manager);
+  set_web_page_manager(web_page_manager);
 
-  while (1) {
+  ESP_LOGI(TAG, "NVS requesting state READY");
+  nvs_manager_request_state(nvs_manager, NVS_STATE_READY_REQUEST);
+  ESP_LOGI(TAG, "NVS waiting on state READY");
+  nvs_manager_wait_until_state(nvs_manager, NVS_READY);
+  ESP_LOGI(TAG, "Wi-FI requesting state STA");
+  wifi_manager_request_state(wifi_manager, WIFI_MANAGER_STATE_STA_REQUEST);
+  wifi_manager_wait_until_state(wifi_manager, WIFI_MANAGER_STATE_STA_IP_RECEIVED);
+  web_page_manager_request_state(web_page_manager, WEB_PAGE_STATE_SERVING_REQUEST);
+  web_page_manager_wait_until_state(web_page_manager, WEB_PAGE_STATE_SERVING);
+  //start_dns_server();
+
+  //xTaskCreate(init_version_checking_task, "HTTPS Version Checking Task", 4096, NULL, VERSION_CHECKING_P, NULL);
+
+  /*while (1) {
     EventBits_t bits = xEventGroupWaitBits(system_event_group,
-                                           NVS_READ_SUCCESSFULLY_READ_BIT | WIFI_CONNECTED_BIT |
-                                           NEW_FIRMWARE_AVAILABLE_BIT | FIRMWARE_VERSION_UP_TO_DATE_BIT |
-                                           AP_WEB_PAGES_REQUEST_BIT | WIFI_AP_MODE_BIT | REBOOT_BIT,
+                                           NVS_READ_SUCCESSFULLY_READ_BIT,
                                            pdFALSE, pdFALSE, portMAX_DELAY);
 
     if (bits & NVS_READ_SUCCESSFULLY_READ_BIT) {
-      xEventGroupClearBits(system_event_group, NVS_READ_SUCCESSFULLY_READ_BIT);
       ESP_LOGI(TAG, "Sending Connect to Wi-Fi Request");
-      xEventGroupSetBits(system_event_group, WIFI_REQUEST_STA_MODE_BIT);
-    }
+      xEventGroupClearBits(system_event_group, NVS_REQUEST_READ_BIT);
 
-    if (bits & WIFI_CONNECTED_BIT) {
+
+      start_dns_server();
+    }*/
+
+    /*if (bits & WIFI_CONNECTED_BIT) {
       xEventGroupClearBits(system_event_group, WIFI_CONNECTED_BIT);
       ESP_LOGI(TAG, "Connected to Wi-Fi");
       xEventGroupSetBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT);
@@ -75,12 +86,15 @@ void init_boiler_plate() {
     }
 
     if (bits & WIFI_AP_MODE_BIT) {
-      xTaskCreate(init_ap_web_pages, "AP Web-Pages", 8192, NULL, AP_WEB_PAGES_P, NULL);
+      xEventGroupClearBits(system_event_group, WIFI_AP_MODE_BIT);
+      web_page_manager_request_state(web_page_manager, WEB_PAGE_STATE_SERVING);
+      web_page_manager_wait_until_state(web_page_manager, WEB_PAGE_STATE_SERVING);
       start_dns_server();
       break;
     }
 
     if (bits & AP_WEB_PAGES_REQUEST_BIT) {
+      wifi_manager_wait_until_state(wifi_manager, WIFI_MANAGER_STATE_AP_BIT);
       xEventGroupClearBits(system_event_group, AP_WEB_PAGES_REQUEST_BIT);
       xTaskCreate(init_ap_web_pages, "AP Web-Pages", 8192, NULL, AP_WEB_PAGES_P, NULL);
       start_dns_server();
@@ -90,10 +104,11 @@ void init_boiler_plate() {
     if (bits & REBOOT_BIT) {
       ESP_LOGW(TAG, "RECEIVED REBOOT");
       break;
-    }
+    }*/
 
-    taskYIELD();
-  }
+    /*taskYIELD();
+  }*/
+
 
   ESP_LOGI(TAG, "Done");
   vTaskDelete(NULL);

@@ -17,7 +17,7 @@
 #ifndef WEB_PAGE_MANAGER_H
 #define WEB_PAGE_MANAGER_H
 
-#include <freertos/FreeRTOS.h>
+#include <esp_err.h>
 #include <esp_bit_defs.h>
 #include <portmacro.h>
 
@@ -36,9 +36,9 @@ typedef enum
 typedef struct web_page_manager web_page_manager_t;
 
 web_page_manager_t* web_page_manager_create(UBaseType_t priority);
-void web_page_manager_destroy(web_page_manager_t *web_page_manager);
+void web_page_manager_destroy(web_page_manager_t *manager);
 esp_err_t web_page_manager_request_state(web_page_manager_t* manager, web_page_manager_state_request_t new_state);
-void web_page_manager_wait_until_state(web_page_manager_t const * manager, web_page_manager_state_t web_page_manager_state);
+void web_page_manager_wait_until_state(web_page_manager_t const * manager, web_page_manager_state_t wait_state);
 
 /**
  * If critical* failures occur, the ESP will Access Point mode (see wifi_connection)
