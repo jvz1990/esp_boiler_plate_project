@@ -83,7 +83,7 @@ static esp_err_t user_handler(httpd_req_t* req);
 static esp_err_t ap_usr_html(httpd_req_t* req);
 static esp_err_t no_content(httpd_req_t* req);
 static esp_err_t css_handler(httpd_req_t* req);
-static esp_err_t captive_handler(httpd_req_t* req);
+static esp_err_t redirect_handler(httpd_req_t* req);
 static void restart_timer_callback(void* arg);
 static esp_err_t reboot_handler(httpd_req_t* req);
 static esp_err_t wifi_post_handler(httpd_req_t* req);
@@ -134,13 +134,14 @@ web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
       {.uri = "/ap_usr.html", .method = HTTP_GET, .handler = ap_usr_html, .user_ctx = manager},
 
       {.uri = "/ap_pages.css", .method = HTTP_GET, .handler = css_handler, .user_ctx = manager},
-      {.uri = "/*", .method = HTTP_GET, .handler = captive_handler},
+      {.uri = "/*", .method = HTTP_GET, .handler = redirect_handler, .user_ctx = manager},
 
       {.uri = "/reboot", .method = HTTP_POST, .handler = reboot_handler, .user_ctx = manager},
       {.uri = "/wifi", .method = HTTP_POST, .handler = wifi_post_handler, .user_ctx = manager},
       {.uri = "/ota", .method = HTTP_POST, .handler = ota_post_handler, .user_ctx = manager},
       {.uri = "/system", .method = HTTP_POST, .handler = sys_post_handler, .user_ctx = manager},
-      {.uri = "/usercfg", .method = HTTP_POST, .handler = user_post_handler, .user_ctx = manager}
+      {.uri = "/usercfg", .method = HTTP_POST, .handler = user_post_handler, .user_ctx = manager},
+
     }
   };
 
@@ -325,7 +326,10 @@ static esp_err_t load_content(file_info_t* const file) {
 
 static esp_err_t send_pages(web_page_manager_t const* const manager, httpd_req_t* req, const resource_t resources[],
                             size_t num_resouces) {
-  if (manager == NULL) return ESP_ERR_NOT_FOUND;
+  if (manager == NULL) {
+    ESP_LOGE(TAG, "Web page manager is NULL");
+    return ESP_ERR_NOT_FOUND;
+  }
   esp_err_t err = ESP_OK;
 
   for (size_t i = 0; i < num_resouces; i++) {
@@ -335,10 +339,14 @@ static esp_err_t send_pages(web_page_manager_t const* const manager, httpd_req_t
       return ESP_ERR_NOT_FOUND;
     }
     err = httpd_resp_send_chunk(req, manager->files[resource].data_ptr, manager->files[resource].content_length);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to send chunk");
+      return err;
+    }
   }
 
   if (httpd_resp_sendstr_chunk(req, closing_tags) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to send closing tags");
     return ESP_FAIL;
   }
 
@@ -421,8 +429,10 @@ static esp_err_t css_handler(httpd_req_t* req) {
   return httpd_resp_sendstr(req, manager->files[CSS].data_ptr);
 }
 
-static esp_err_t captive_handler(httpd_req_t* req) {
+static esp_err_t redirect_handler(httpd_req_t* req) {
   const char* uri = req->uri;
+
+  ESP_LOGI(TAG, "Requested URL: %s", uri);
 
   if (strstr(uri, "favicon.ico")) {
     ESP_LOGI(TAG, "Handling favicon.ico");
@@ -444,6 +454,7 @@ static esp_err_t captive_handler(httpd_req_t* req) {
     return no_content(req);
   }
 
+  ESP_LOGI(TAG, "Defaulting to Wi-Fi page");
   return wifi_handler(req);
 }
 

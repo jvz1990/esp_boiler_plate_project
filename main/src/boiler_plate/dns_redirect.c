@@ -67,7 +67,6 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
     return;
   }
 
-
   dns_header* hdr = (dns_header*)p->payload;
 
   if (PP_NTOHS(hdr->flags) & 0x8000 ||
@@ -76,7 +75,6 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
     pbuf_free(p);
     return;
   }
-
 
   u8_t* qname_start = (u8_t*)p->payload + sizeof(dns_header);
   u16_t remaining = p->tot_len - sizeof(dns_header);
@@ -112,9 +110,7 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
   resp_hdr->flags = PP_HTONS(0x8400);
   resp_hdr->ancount = PP_HTONS(1);
 
-
   memcpy((u8_t*)resp->payload + sizeof(dns_header), qname_start, qname_len);
-
 
   dns_answer ans = {
     .name = PP_HTONS(0xC00C),
