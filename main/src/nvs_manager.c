@@ -144,21 +144,7 @@ static void fsm_task(void* arg) {
                                            NVS_STATE_READ_REQUEST |
                                            NVS_STATE_WRITE_REQUEST, pdTRUE, pdFALSE, portMAX_DELAY);
 
-    nvs_manager_state_request_t requested_state = NVS_STATE_NONE_REQUEST;
-    if (bits & NVS_STATE_NONE_REQUEST) {
-      requested_state = NVS_STATE_NONE_REQUEST;
-    } else if (bits & NVS_STATE_READY_REQUEST) {
-      requested_state = NVS_STATE_READY_REQUEST;
-    } else if (bits & NVS_STATE_READ_REQUEST) {
-      requested_state = NVS_STATE_READ_REQUEST;
-    } else if (bits & NVS_STATE_WRITE_REQUEST) {
-      requested_state = NVS_STATE_WRITE_REQUEST;
-    } else {
-      ESP_LOGE(TAG, "Unknown request state: 0x%X", bits);
-      continue;
-    }
-
-    if (transition_to_state(manager, requested_state) == ESP_OK) {
+    if (transition_to_state(manager, bits) == ESP_OK) {
       ESP_LOGI(TAG, "Successful state transition: 0x%X", bits);
     } else {
       ESP_LOGI(TAG, "Unsuccessful state transition: 0x%X", bits);
@@ -170,7 +156,7 @@ static void fsm_task(void* arg) {
   vTaskDelete(NULL);
 }
 
-esp_err_t transition_to_state(nvs_manager_t* const manager, nvs_manager_state_request_t state_request) {
+esp_err_t transition_to_state(nvs_manager_t* const manager, const nvs_manager_state_request_t state_request) {
   EventBits_t current_state = xEventGroupGetBits(manager->state_event_group);
 
   // Validation

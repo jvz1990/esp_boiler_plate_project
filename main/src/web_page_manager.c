@@ -18,6 +18,8 @@
 
 #include "configuration.h"
 #include "dns_redirect.h"
+#include "nvs_manager.h"
+#include "state.h"
 
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -26,6 +28,7 @@
 
 #include <cJSON.h>
 #include <esp_timer.h>
+
 #include <stdbool.h>
 
 typedef struct
@@ -465,8 +468,6 @@ static void restart_timer_callback(void* arg) {
 static esp_err_t reboot_handler(httpd_req_t* req) {
   httpd_resp_sendstr(req, "Rebooting in 10");
 
-  xEventGroupSetBits(system_event_group, REBOOT_BIT);
-
   // Create and start a one-shot timer to restart after 10 seconds
   esp_timer_handle_t restart_timer;
   const esp_timer_create_args_t timer_args = {
@@ -553,7 +554,6 @@ static esp_err_t wifi_post_handler(httpd_req_t* req) {
   unit_config_release();
 
   send_json_resp(req, 200, "Saved Wi-Fi");
-  xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
 
   return ESP_OK;
 }
@@ -590,7 +590,9 @@ static esp_err_t ota_post_handler(httpd_req_t* req) {
 
   cJSON_Delete(d);
   send_json_resp(req, 200, "OTA configuration saved");
-  xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
+  struct nvs_manager* nvs_manager = get_nvs_manager();
+  nvs_manager_request_state(nvs_manager, NVS_STATE_WRITE_REQUEST);
+  managers_release();
   return ESP_OK;
 }
 
@@ -652,7 +654,9 @@ static esp_err_t sys_post_handler(httpd_req_t* req) {
 
     esp_log_level_set("*", sys_conf->log_level);
     unit_config_release();
-    xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
+    struct nvs_manager* nvs_manager = get_nvs_manager();
+    nvs_manager_request_state(nvs_manager, NVS_STATE_WRITE_REQUEST);
+    managers_release();
   }
 
   send_json_resp(req, 200, log_level_ptr ? "Saved Sys Settings" : "No changes");
@@ -714,7 +718,9 @@ static esp_err_t user_post_handler(httpd_req_t* req) {
     config->user_config.unit_name_len = len;
 
     unit_config_release();
-    xEventGroupSetBits(system_event_group, NVS_REQUEST_WRITE_BIT);
+    struct nvs_manager* nvs_manager = get_nvs_manager();
+    nvs_manager_request_state(nvs_manager, NVS_STATE_WRITE_REQUEST);
+    managers_release();
   }
 
   send_json_resp(req, 200, unit_name ? "Saved User" : "No changes");

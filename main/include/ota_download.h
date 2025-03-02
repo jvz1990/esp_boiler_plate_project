@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef FOUNDATION_MAIN_H
-#define FOUNDATION_MAIN_H
+#ifndef OTA_DOWNLOAD_H
+#define OTA_DOWNLOAD_H
 
-void init_boiler_plate();
+/**
+ * Performs OTA Update
+ * This task is expected to be called after confirming there is a new version available using `version_check`
+ */
+void init_ota_task();
 
-#endif // FOUNDATION_MAIN_H
+#endif // OTA_DOWNLOAD_H

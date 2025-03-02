@@ -42,5 +42,6 @@ wifi_manager_t* wifi_manager_create(UBaseType_t priority);
 void wifi_manager_destroy(wifi_manager_t* manager);
 esp_err_t wifi_manager_request_state(wifi_manager_t* manager, wifi_manager_state_request_t new_state);
 void wifi_manager_wait_until_state(wifi_manager_t const * manager, wifi_manager_state_t wifi_state);
+wifi_manager_state_t wifi_manager_get_state(wifi_manager_t const* manager);
 
 #endif //WIFI_MANAGER_H
