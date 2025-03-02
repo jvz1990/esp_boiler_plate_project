@@ -19,14 +19,13 @@
 #include <esp_log.h>
 #include <string.h>
 
-static const char* TAG = "deserialisation";
+static const char* TAG = "Deserialisation";
 
 static const uint8_t* deserialize_block(const uint8_t* buffer, void* data, size_t size);
 
 const uint8_t* deserialize_wifi_settings(wifi_settings_t* settings, const uint8_t* buffer);
 const uint8_t* deserialize_connectivity_configuration(connectivity_configuration_t* config, const uint8_t* buffer);
-const uint8_t*
-deserialize_system_settings_configuration(system_settings_configuration_t* config, const uint8_t* buffer);
+const uint8_t* deserialize_system_settings_configuration(system_settings_configuration_t* config, const uint8_t* buffer);
 const uint8_t* deserialize_user_configuration(user_configuration_t* config, const uint8_t* buffer);
 
 static const uint8_t* deserialize_block(const uint8_t* buffer, void* data, size_t size) {
@@ -90,8 +89,7 @@ const uint8_t* deserialize_connectivity_configuration(connectivity_configuration
   return ptr;
 }
 
-const uint8_t*
-deserialize_system_settings_configuration(system_settings_configuration_t* config, const uint8_t* buffer) {
+const uint8_t* deserialize_system_settings_configuration(system_settings_configuration_t* config, const uint8_t* buffer) {
   const uint8_t* ptr = buffer;
 
   ptr = deserialize_block(ptr, &config->log_level, sizeof(config->log_level));
@@ -120,7 +118,8 @@ const uint8_t* deserialize_unit_configuration(unit_configuration_t* config, cons
   ptr = deserialize_block(ptr, &config->configuration_version, sizeof(config->configuration_version));
 
   if (config->configuration_version != CONFIGURATION_VERSION) {
-    ESP_LOGE(TAG, "Configuration version mismatch, NVS [%d] vs Firmware [%d]", config->configuration_version, CONFIGURATION_VERSION); // TODO versioning
+    ESP_LOGE(TAG, "Configuration version mismatch, NVS [%d] vs Firmware [%d]", config->configuration_version,
+             CONFIGURATION_VERSION); // TODO versioning
     return NULL;
   }
 

@@ -35,7 +35,6 @@ static const char* TAG = "Wi-Fi Manager";
 
 struct wifi_manager
 {
-  wifi_manager_state_t current_state;
   EventGroupHandle_t request_event_group;
   EventGroupHandle_t state_event_group;
   TaskHandle_t fsm_task_handle;
@@ -78,8 +77,6 @@ wifi_manager_t* wifi_manager_create(UBaseType_t priority) {
     free(manager);
     return NULL;
   }
-
-  manager->current_state = WIFI_MANAGER_STATE_NONE;
 
   // #TODO refactor to be configurable
   manager->sta_config_set = true;
@@ -156,7 +153,7 @@ void wifi_manager_destroy(wifi_manager_t* manager) {
     vEventGroupDelete(manager->state_event_group);
   }
 
-  if (manager->current_state != WIFI_MANAGER_STATE_NONE) {
+  if (xEventGroupGetBits(manager->state_event_group) != WIFI_MANAGER_STATE_NONE) {
     esp_wifi_disconnect();
     esp_wifi_stop();
     esp_wifi_deinit();
@@ -175,7 +172,7 @@ esp_err_t wifi_manager_request_state(wifi_manager_t* manager, wifi_manager_state
 }
 
 wifi_manager_state_t wifi_manager_get_state(const wifi_manager_t* manager) {
-  return manager ? manager->current_state : WIFI_MANAGER_STATE_NONE;
+  return manager ? xEventGroupGetBits(manager->state_event_group) : WIFI_MANAGER_STATE_NONE;
 }
 
 EventGroupHandle_t wifi_manager_get_state_event_group(const wifi_manager_t* manager) {
@@ -239,6 +236,8 @@ static esp_err_t find_strongest_ssid(wifi_manager_t const* const manager) {
 
 static void fsm_task(void* arg) {
   wifi_manager_t* manager = arg;
+
+  xEventGroupSetBits(manager->state_event_group, WIFI_MANAGER_STATE_NONE);
 
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(
@@ -412,8 +411,6 @@ static esp_err_t start_wifi_scan(wifi_manager_t const* const wifi_manager) {
 }
 
 static esp_err_t transition_to_state(wifi_manager_t* manager, wifi_manager_state_t new_state) {
-  if (manager->current_state == new_state) return ESP_OK;
-
   // Validate configurations
   if (new_state == WIFI_MANAGER_STATE_STA && !manager->sta_config_set) return ESP_ERR_INVALID_STATE;
   if (new_state == WIFI_MANAGER_STATE_AP && !manager->ap_config_set) return ESP_ERR_INVALID_STATE;
@@ -427,8 +424,9 @@ static esp_err_t transition_to_state(wifi_manager_t* manager, wifi_manager_state
     manager->ap_netif = NULL;
   }
 
+  EventBits_t current_state = xEventGroupGetBits(manager->state_event_group);
   esp_err_t err;
-  if (manager->current_state != WIFI_MANAGER_STATE_NONE) {
+  if (current_state != WIFI_MANAGER_STATE_NONE) {
     if ((err = esp_wifi_stop()) != ESP_OK) return err;
   }
 
@@ -458,7 +456,7 @@ static esp_err_t transition_to_state(wifi_manager_t* manager, wifi_manager_state
   }
 
   if (new_state != WIFI_MANAGER_STATE_NONE) {
-    if (manager->current_state == WIFI_MANAGER_STATE_NONE) {
+    if (current_state == WIFI_MANAGER_STATE_NONE) {
       wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
       if ((err = esp_wifi_init(&cfg)) != ESP_OK) return err;
     }
@@ -474,8 +472,6 @@ static esp_err_t transition_to_state(wifi_manager_t* manager, wifi_manager_state
   } else {
     if ((err = esp_wifi_deinit()) != ESP_OK) return err;
   }
-
-  manager->current_state = new_state;
 
   // Update state event group
   xEventGroupSetBits(manager->state_event_group, new_state);

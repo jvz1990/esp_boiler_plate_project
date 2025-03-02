@@ -51,7 +51,6 @@ typedef enum
 
 struct web_page_manager
 {
-  web_page_manager_state_t current_state;
   EventGroupHandle_t request_event_group;
   EventGroupHandle_t state_event_group;
   TaskHandle_t fsm_task_handle;
@@ -101,7 +100,6 @@ web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
   }
 
   *manager = (web_page_manager_t){
-    .current_state = WEB_PAGE_STATE_NONE,
     .request_event_group = xEventGroupCreate(),
     .state_event_group = xEventGroupCreate(),
     .fsm_task_handle = NULL,
@@ -209,6 +207,8 @@ static void fsm_task(void* arg) {
     return;
   }
 
+  xEventGroupSetBits(manager->state_event_group, WEB_PAGE_STATE_NONE);
+
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(
       manager->request_event_group,
@@ -233,7 +233,9 @@ static void fsm_task(void* arg) {
 }
 
 static esp_err_t transition_to_state(web_page_manager_t* const manager, const web_page_manager_state_t new_state) {
-  if (manager->current_state == new_state) return ESP_OK;
+  EventBits_t current_state = xEventGroupGetBits(manager->state_event_group);
+
+  if (current_state == new_state) return ESP_OK;
 
   esp_err_t err = ESP_OK;
 
@@ -246,7 +248,6 @@ static esp_err_t transition_to_state(web_page_manager_t* const manager, const we
     err = ESP_ERR_INVALID_STATE;
   }
 
-  if (err == ESP_OK) manager->current_state = new_state;
   return err;
 }
 

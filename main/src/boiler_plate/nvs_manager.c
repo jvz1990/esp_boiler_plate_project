@@ -30,7 +30,6 @@
 
 struct nvs_manager
 {
-  nvs_manager_state_t current_state;
   EventGroupHandle_t request_event_group;
   EventGroupHandle_t state_event_group;
   TaskHandle_t fsm_task_handle;
@@ -62,7 +61,6 @@ nvs_manager_t* nvs_manager_create(UBaseType_t priority) {
   }
 
   *manager = (nvs_manager_t){
-    .current_state = NVS_STATE_NONE,
     .request_event_group = xEventGroupCreate(),
     .state_event_group = xEventGroupCreate(),
     .fsm_task_handle = NULL,
@@ -131,12 +129,13 @@ static void fsm_task(void* arg) {
     return;
   }
 
-
   if (manager->request_event_group == NULL) {
     ESP_LOGE(TAG, "Request event group not created");
     vTaskDelete(NULL);
     return;
   }
+
+  xEventGroupSetBits(manager->state_event_group, NVS_STATE_NONE);
 
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(manager->request_event_group,
@@ -155,14 +154,14 @@ static void fsm_task(void* arg) {
     } else if (bits & NVS_STATE_WRITE_REQUEST) {
       requested_state = NVS_STATE_WRITE_REQUEST;
     } else {
-      ESP_LOGE(TAG, "Unknown request state: %lu, ", bits);
+      ESP_LOGE(TAG, "Unknown request state: 0x%X", bits);
       continue;
     }
 
     if (transition_to_state(manager, requested_state) == ESP_OK) {
-      ESP_LOGI(TAG, "Successful state transition: %lu", bits);
+      ESP_LOGI(TAG, "Successful state transition: 0x%X", bits);
     } else {
-      ESP_LOGI(TAG, "Unsuccessful state transition: %lu", bits);
+      ESP_LOGI(TAG, "Unsuccessful state transition: 0x%X", bits);
     }
 
     taskYIELD();
@@ -172,20 +171,22 @@ static void fsm_task(void* arg) {
 }
 
 esp_err_t transition_to_state(nvs_manager_t* const manager, nvs_manager_state_request_t state_request) {
+  EventBits_t current_state = xEventGroupGetBits(manager->state_event_group);
+
   // Validation
-  if (manager->current_state == NVS_BUSY) {
+  if (current_state == NVS_BUSY) {
     ESP_LOGW(TAG, "NVS busy - cannot perform request");
     return ESP_FAIL;
   }
 
-  if ((manager->current_state == NVS_STATE_NONE) &&
-    ((state_request == NVS_STATE_READ_REQUEST) || (state_request == NVS_STATE_WRITE_REQUEST))) {
+  if (current_state == NVS_STATE_NONE &&
+    (state_request == NVS_STATE_READ_REQUEST || state_request == NVS_STATE_WRITE_REQUEST)) {
     ESP_LOGE(TAG, "State change requested denied. Need to request ready first");
     return ESP_FAIL;
   }
 
   esp_err_t ret = ESP_OK;
-  if (manager->current_state == NVS_STATE_NONE && state_request == NVS_STATE_READY_REQUEST) {
+  if (current_state == NVS_STATE_NONE && state_request == NVS_STATE_READY_REQUEST) {
     ret = initialise_nvs_flash();
     if (ret == ESP_OK) {
       if (!is_config_stored_in_nvs(UNIT_CONFIG_KEY)) {
@@ -193,31 +194,23 @@ esp_err_t transition_to_state(nvs_manager_t* const manager, nvs_manager_state_re
       }
       read_nvs_into_config();
       manager->nvs_flash_inited = true;
-      manager->current_state = NVS_READY;
       xEventGroupSetBits(manager->state_event_group, NVS_READY);
     }
-  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_READ_REQUEST) {
-    manager->current_state = NVS_BUSY;
+  } else if (current_state == NVS_READY && state_request == NVS_STATE_READ_REQUEST) {
     xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
     ret = read_nvs_into_config();
-    manager->current_state = NVS_READY;
     xEventGroupSetBits(manager->state_event_group, NVS_READY);
-  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_WRITE_REQUEST) {
-    manager->current_state = NVS_BUSY;
+  } else if (current_state == NVS_READY && state_request == NVS_STATE_WRITE_REQUEST) {
     xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
     ret = update_nvs_from_config();
-    manager->current_state = NVS_READY;
     xEventGroupSetBits(manager->state_event_group, NVS_READY);
-  } else if (manager->current_state == NVS_READY && state_request == NVS_STATE_NONE_REQUEST) {
-    manager->current_state = NVS_BUSY;
+  } else if (current_state == NVS_READY && state_request == NVS_STATE_NONE_REQUEST) {
     xEventGroupSetBits(manager->state_event_group, NVS_BUSY);
     ret = deinitialise_nvs_flash();
     if (ret == ESP_OK) {
-      manager->current_state = NVS_STATE_NONE;
       xEventGroupSetBits(manager->state_event_group, NVS_STATE_NONE);
       manager->nvs_flash_inited = false;
     } else {
-      manager->current_state = NVS_READY;
       xEventGroupSetBits(manager->state_event_group, NVS_READY);
     }
   } else {
