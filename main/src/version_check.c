@@ -17,6 +17,8 @@
 #include "version_check.h"
 #include "allocation.h"
 #include "configuration.h"
+#include "ota_download.h"
+#include "wifi_manager.h"
 
 #include <cJSON.h>
 #include <esp_http_client.h>
@@ -150,7 +152,7 @@ static esp_err_t get_https_version(char const* const url_version, char* version)
 
   const esp_http_client_config_t https_config = {
     .url = url_version,
-    .cert_pem = (char*)server_cert_pem_start, // TODO move cert to spiffs
+    .cert_pem = (char*)server_cert_pem_start, // #TODO move cert to spiffs
     .event_handler = version_check_http_event_handler,
     .user_data = local_response_buffer,
     .method = HTTP_METHOD_GET,
@@ -181,10 +183,6 @@ static esp_err_t get_https_version(char const* const url_version, char* version)
 
 static esp_err_t check_https_firmware_version() {
   esp_err_t err = {0};
-  if (!is_wifi_connected()) {
-    ESP_LOGE(TAG, "Wi-Fi not connected");
-    return ESP_FAIL;
-  }
 
   // Current version
   const esp_partition_t* running = esp_ota_get_running_partition();
@@ -216,31 +214,33 @@ static esp_err_t check_https_firmware_version() {
 }
 
 void init_version_checking_task() {
-  while (1) {
-    const EventBits_t bits =
-      xEventGroupWaitBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT | REBOOT_BIT, pdFALSE, pdFALSE,
-                          portMAX_DELAY);
+  wifi_manager_t* wifi_manager = get_wifi_manager();
+  if (wifi_manager == NULL) {
+    ESP_LOGE(TAG, "Wi-Fi not initialized");
+    managers_release();
+    vTaskDelete(NULL);
+    return;
+  }
 
-    if (bits & FIRMWARE_REQUEST_VERSION_CHECK_BIT) {
-      xEventGroupClearBits(system_event_group, FIRMWARE_REQUEST_VERSION_CHECK_BIT);
-      ESP_LOGI(TAG, "Version check request received.");
-      // Check version
-      const esp_err_t err = check_https_firmware_version();
-      if (err == ESP_OK) {
-        xEventGroupSetBits(system_event_group, FIRMWARE_VERSION_UP_TO_DATE_BIT);
-      } else if (err == ESP_NEW_FIRMWARE_VERSION_FOUND) {
-        xEventGroupSetBits(system_event_group, NEW_FIRMWARE_AVAILABLE_BIT);
-      } else {
-        ESP_LOGE(TAG, "Error: %s", esp_err_to_name(err));
-      }
-    }
+  wifi_manager_state_t wifi_state = wifi_manager_get_state(wifi_manager);
+  managers_release();
+  if ((wifi_state & WIFI_MANAGER_STATE_STA_IP_RECEIVED) == 0) {
+    ESP_LOGE(TAG, "Wi-Fi not connected");
+    vTaskDelete(NULL);
+    return;
+  }
 
-    if (bits & REBOOT_BIT) {
-      ESP_LOGW(TAG, "RECEIVED REBOOT");
-      break;
-    }
+  // Check version
+  const esp_err_t err = check_https_firmware_version();
+  if (err == ESP_OK) {
+    vTaskDelete(NULL);
+    return; // up to date
+  }
 
-    taskYIELD();
+  if (err == ESP_NEW_FIRMWARE_VERSION_FOUND) {
+    xTaskCreate(init_ota_task, TAG, 4096, NULL, OTA_UPDATE_P, NULL);
+  } else {
+    ESP_LOGE(TAG, "Error: %s", esp_err_to_name(err));
   }
 
   ESP_LOGI(TAG, "Done");

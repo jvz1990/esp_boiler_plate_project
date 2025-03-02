@@ -16,6 +16,8 @@
 
 #include "ota_download.h"
 
+#include "wifi_manager.h"
+
 #include <configuration.h>
 #include <esp_app_desc.h>
 #include <esp_http_client.h>
@@ -24,6 +26,7 @@
 #include <esp_ota_ops.h>
 #include <esp_wifi.h>
 #include <state.h>
+
 
 static const char* TAG = "OTA_DOWNLOAD";
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
@@ -146,7 +149,17 @@ static esp_err_t perform_ota_update() {
 }
 
 void init_ota_task() {
-  if (!is_wifi_connected()) {
+  wifi_manager_t* wifi_manager = get_wifi_manager();
+  if (wifi_manager == NULL) {
+    ESP_LOGE(TAG, "Wi-Fi not initialized");
+    managers_release();
+    vTaskDelete(NULL);
+    return;
+  }
+
+  wifi_manager_state_t wifi_state = wifi_manager_get_state(wifi_manager);
+  managers_release();
+  if ((wifi_state & WIFI_MANAGER_STATE_STA_IP_RECEIVED) == 0) {
     ESP_LOGE(TAG, "Wi-Fi not connected");
     vTaskDelete(NULL);
     return;

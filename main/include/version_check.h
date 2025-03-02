@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-#ifndef FOUNDATION_MAIN_H
-#define FOUNDATION_MAIN_H
+#ifndef VERSION_CHECK_H
+#define VERSION_CHECK_H
 
-void init_boiler_plate();
+void init_version_checking_task();
 
-#endif // FOUNDATION_MAIN_H
+#endif // VERSION_CHECK_H

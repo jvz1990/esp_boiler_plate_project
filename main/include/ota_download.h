@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 
-#ifndef CAPTIVE_PORTAL_H
-#define CAPTIVE_PORTAL_H
+#ifndef OTA_DOWNLOAD_H
+#define OTA_DOWNLOAD_H
 
-void start_dns_server();
+/**
+ * Performs OTA Update
+ * This task is expected to be called after confirming there is a new version available using `version_check`
+ */
+void init_ota_task();
 
-#endif //CAPTIVE_PORTAL_H
+#endif // OTA_DOWNLOAD_H
