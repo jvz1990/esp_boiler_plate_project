@@ -29,7 +29,6 @@
 static struct udp_pcb* dns_pcb = NULL;
 static ip4_addr_t ap_ip;
 static char* TAG = "DNS Redirect";
-static TaskHandle_t dns_task_handle = NULL;
 
 #pragma pack(push, 1)
 
@@ -64,26 +63,58 @@ typedef struct
 static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
                               const ip_addr_t* addr, u16_t port) {
   if (!p || p->tot_len < sizeof(dns_header)) {
-    if (p) pbuf_free(p);
+    pbuf_free(p);
     return;
   }
 
-  struct pbuf* resp = pbuf_alloc(PBUF_TRANSPORT, p->tot_len + sizeof(dns_answer), PBUF_RAM);
+
+  dns_header* hdr = (dns_header*)p->payload;
+
+  if (PP_NTOHS(hdr->flags) & 0x8000 ||
+    (PP_NTOHS(hdr->flags) & 0x7800) != 0 ||
+    PP_NTOHS(hdr->qdcount) != 1) {
+    pbuf_free(p);
+    return;
+  }
+
+
+  u8_t* qname_start = (u8_t*)p->payload + sizeof(dns_header);
+  u16_t remaining = p->tot_len - sizeof(dns_header);
+  u16_t qname_len = 0;
+
+  while (remaining > 0 && qname_start[qname_len] != 0) {
+    if (qname_start[qname_len] >= 0xC0) {
+      pbuf_free(p);
+      return;
+    }
+    u8_t label_len = qname_start[qname_len];
+    if (label_len >= remaining) break;
+    qname_len += label_len + 1;
+    remaining -= label_len + 1;
+  }
+
+  if (remaining < 5 || qname_start[qname_len] != 0) {
+    pbuf_free(p);
+    return;
+  }
+  qname_len += 5;
+
+  u16_t resp_len = sizeof(dns_header) + qname_len + sizeof(dns_answer);
+  struct pbuf* resp = pbuf_alloc(PBUF_TRANSPORT, resp_len, PBUF_RAM);
   if (!resp) {
     pbuf_free(p);
     return;
   }
 
-  pbuf_copy(resp, p);
+  memcpy(resp->payload, p->payload, sizeof(dns_header));
+  dns_header* resp_hdr = (dns_header*)resp->payload;
 
-  dns_header* hdr = (dns_header*)resp->payload;
-  hdr->flags = PP_HTONS(0x8400);
-  hdr->ancount = PP_HTONS(1);
+  resp_hdr->flags = PP_HTONS(0x8400);
+  resp_hdr->ancount = PP_HTONS(1);
 
-  u8_t* payload = (u8_t*)resp->payload;
-  u16_t qname_len = 12;
-  while (payload[qname_len] != 0 && qname_len < resp->tot_len) qname_len++;
-  qname_len += 5;
+
+  memcpy((u8_t*)resp->payload + sizeof(dns_header), qname_start, qname_len);
+
 
   dns_answer ans = {
     .name = PP_HTONS(0xC00C),
@@ -94,26 +125,28 @@ static void dns_recv_callback(void* arg, struct udp_pcb* pcb, struct pbuf* p,
     .addr = ap_ip
   };
 
-  memcpy(&payload[qname_len], &ans, sizeof(ans));
-  resp->tot_len = qname_len + sizeof(ans);
+  memcpy((u8_t*)resp->payload + sizeof(dns_header) + qname_len, &ans, sizeof(ans));
 
   udp_sendto(pcb, resp, addr, port);
   pbuf_free(resp);
   pbuf_free(p);
 }
 
-static void dns_server_task() {
+void start_dns_server() {
+  if (dns_pcb != NULL) {
+    ESP_LOGW(TAG, "Already started");
+    return;
+  }
+
   dns_pcb = udp_new_ip_type(IPADDR_TYPE_V4);
   if (!dns_pcb) {
     ESP_LOGE(TAG, "Failed to create DNS PCB");
-    vTaskDelete(NULL);
     return;
   }
 
   if (udp_bind(dns_pcb, IP_ANY_TYPE, 53) != ERR_OK) {
     ESP_LOGE(TAG, "Failed to bind DNS port");
-    udp_remove(dns_pcb);
-    vTaskDelete(NULL);
+    stop_dns_server();
     return;
   }
 
@@ -123,24 +156,14 @@ static void dns_server_task() {
   esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
   ip4_addr_set_u32(&ap_ip, ip_info.ip.addr);
 
-  while (1) {
-    EventBits_t bits = xEventGroupWaitBits(system_event_group, REBOOT_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
-    if (bits & REBOOT_BIT) {
-      ESP_LOGW(TAG, "RECEIVED REBOOT");
-      break;
-    }
-    taskYIELD();
-  }
-
-  udp_remove(dns_pcb);
-  dns_pcb = NULL;
-  dns_task_handle = NULL;
-  ESP_LOGI(TAG, "Done");
-  vTaskDelete(NULL);
+  ESP_LOGI(TAG, "DNS redirect started");
 }
 
-void start_dns_server() {
-  if (dns_task_handle == NULL) {
-    xTaskCreate(dns_server_task, TAG, 4096, NULL, DNS_P, &dns_task_handle);
+void stop_dns_server() {
+  if (dns_pcb != NULL) {
+    udp_remove(dns_pcb);
+    dns_pcb = NULL;
   }
+
+  ESP_LOGI(TAG, "Stopped DNS Redirect");
 }

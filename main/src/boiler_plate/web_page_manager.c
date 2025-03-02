@@ -17,6 +17,7 @@
 #include "web_page_manager.h"
 
 #include "configuration.h"
+#include "dns_redirect.h"
 
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -68,7 +69,7 @@ static const char* const TEXT_CSS = "text/css"; // TYPE
 static const char* const closing_tags = "</script></body></html>";
 
 static void fsm_task(void* arg);
-static esp_err_t transition_to_state(web_page_manager_t* manager, web_page_manager_state_t new_state);
+static esp_err_t transition_to_state(web_page_manager_t* manager, web_page_manager_state_request_t new_state_request);
 static esp_err_t init_web_pages(web_page_manager_t* manager);
 static esp_err_t load_content(file_info_t* file);
 static esp_err_t wifi_handler(httpd_req_t* req);
@@ -89,7 +90,8 @@ static esp_err_t wifi_post_handler(httpd_req_t* req);
 static esp_err_t ota_post_handler(httpd_req_t* req);
 static esp_err_t sys_post_handler(httpd_req_t* req);
 static esp_err_t user_post_handler(httpd_req_t* req);
-static esp_err_t send_pages(web_page_manager_t const* manager, httpd_req_t* req, const resource_t resources[], size_t num_resouces);
+static esp_err_t send_pages(web_page_manager_t const* manager, httpd_req_t* req, const resource_t resources[],
+                            size_t num_resouces);
 static esp_err_t cleanup_web_page_manager(web_page_manager_t* manager);
 
 web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
@@ -115,7 +117,7 @@ web_page_manager_t* web_page_manager_create(UBaseType_t priority) {
       [AP_SYS_JS] = {"/spiffs/ap_sys.js", NULL, 0},
       [DEFAULT_PAGE] = {"/spiffs/default_page.html", NULL, 0}
     },
-    .json_buffer = { 0 },
+    .json_buffer = {0},
     .server = NULL,
     .handlers = {
       // Wi-Fi
@@ -207,22 +209,17 @@ static void fsm_task(void* arg) {
     return;
   }
 
-  xEventGroupSetBits(manager->state_event_group, WEB_PAGE_STATE_NONE);
+  xEventGroupSetBits(manager->state_event_group, WEB_PAGE_STATE_NONE | WEB_PAGE_STATE_DNS_SERVER_NONE);
 
   while (1) {
     EventBits_t bits = xEventGroupWaitBits(
       manager->request_event_group,
-      WEB_PAGE_STATE_NONE_REQUEST | WEB_PAGE_STATE_SERVING_REQUEST,
+      WEB_PAGE_STATE_NONE_REQUEST | WEB_PAGE_STATE_SERVING_REQUEST | WEB_PAGE_STATE_DNS_SERVER_NONE_REQUEST |
+      WEB_PAGE_STATE_DNS_SERVER_REQUEST,
       pdTRUE, pdFALSE, portMAX_DELAY
       );
 
-    web_page_manager_state_t requested_state = WEB_PAGE_STATE_NONE;
-    if (bits & WEB_PAGE_STATE_NONE_REQUEST) requested_state = WEB_PAGE_STATE_NONE;
-    else if (bits & WEB_PAGE_STATE_SERVING_REQUEST) requested_state = WEB_PAGE_STATE_SERVING;
-    else
-      ESP_LOGW(TAG, "Requested state not recognized: %d", requested_state);
-
-    const esp_err_t err = transition_to_state(manager, requested_state);
+    const esp_err_t err = transition_to_state(manager, bits);
     if (err != ESP_OK)
       ESP_LOGE(TAG, "State transition failed: %s", esp_err_to_name(err));
 
@@ -232,20 +229,30 @@ static void fsm_task(void* arg) {
   vTaskDelete(NULL);
 }
 
-static esp_err_t transition_to_state(web_page_manager_t* const manager, const web_page_manager_state_t new_state) {
+static esp_err_t transition_to_state(web_page_manager_t* manager, web_page_manager_state_request_t new_state_request) {
   EventBits_t current_state = xEventGroupGetBits(manager->state_event_group);
-
-  if (current_state == new_state) return ESP_OK;
 
   esp_err_t err = ESP_OK;
 
-  if (new_state == WEB_PAGE_STATE_NONE) {
+  if (current_state & WEB_PAGE_STATE_SERVING && new_state_request & WEB_PAGE_STATE_NONE_REQUEST) {
     err = cleanup_web_page_manager(manager);
-  } else if (new_state == WEB_PAGE_STATE_SERVING) {
+    xEventGroupSetBits(manager->state_event_group, WEB_PAGE_STATE_NONE);
+  } else if (current_state & WEB_PAGE_STATE_NONE && new_state_request & WEB_PAGE_STATE_SERVING_REQUEST) {
     err = init_web_pages(manager);
+    xEventGroupSetBits(manager->state_event_group, WEB_PAGE_STATE_SERVING);
   } else {
-    ESP_LOGE(TAG, "State not recognized: %d", new_state);
-    err = ESP_ERR_INVALID_STATE;
+    ESP_LOGI(TAG, "No state transition for web-server");
+  }
+
+  current_state = xEventGroupGetBits(manager->state_event_group);
+  if (current_state & WEB_PAGE_STATE_DNS_SERVER_ACTIVE && new_state_request & WEB_PAGE_STATE_DNS_SERVER_NONE_REQUEST) {
+    stop_dns_server();
+    xEventGroupSetBits(manager->state_event_group, current_state | WEB_PAGE_STATE_DNS_SERVER_NONE);
+  } else if (current_state & WEB_PAGE_STATE_DNS_SERVER_NONE && new_state_request & WEB_PAGE_STATE_DNS_SERVER_REQUEST) {
+    start_dns_server();
+    xEventGroupSetBits(manager->state_event_group, current_state | WEB_PAGE_STATE_DNS_SERVER_ACTIVE);
+  } else {
+    ESP_LOGI(TAG, "No state transition for dns-server");
   }
 
   return err;
@@ -603,7 +610,6 @@ static esp_err_t sys_post_handler(httpd_req_t* req) {
     size_t len = strlen(log_level_ptr);
 
     if (len > 15) {
-      // 'ESP_LOG_VERBOSE' is longest
       send_json_resp(req, 400, "Invalid Log Level too long");
       ret = ESP_FAIL;
       goto cleanup;

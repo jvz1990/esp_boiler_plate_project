@@ -24,13 +24,17 @@
 typedef enum
 {
   WEB_PAGE_STATE_NONE = BIT0,
-  WEB_PAGE_STATE_SERVING = BIT1
+  WEB_PAGE_STATE_SERVING = BIT1,
+  WEB_PAGE_STATE_DNS_SERVER_NONE = BIT2,
+  WEB_PAGE_STATE_DNS_SERVER_ACTIVE = BIT3,
 } web_page_manager_state_t;
 
 typedef enum
 {
   WEB_PAGE_STATE_NONE_REQUEST = BIT0,
-  WEB_PAGE_STATE_SERVING_REQUEST = BIT1
+  WEB_PAGE_STATE_SERVING_REQUEST = BIT1,
+  WEB_PAGE_STATE_DNS_SERVER_NONE_REQUEST = BIT2,
+  WEB_PAGE_STATE_DNS_SERVER_REQUEST = BIT3,
 } web_page_manager_state_request_t;
 
 typedef struct web_page_manager web_page_manager_t;

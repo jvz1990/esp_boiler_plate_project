@@ -249,9 +249,10 @@ static void fsm_task(void* arg) {
       );
 
     wifi_manager_state_t requested_state = WIFI_MANAGER_STATE_NONE;
-    if (bits & WIFI_MANAGER_STATE_NONE_REQUEST) requested_state = WIFI_MANAGER_STATE_NONE;
-    else if (bits & WIFI_MANAGER_STATE_STA_REQUEST) requested_state = WIFI_MANAGER_STATE_STA;
-    else if (bits & WIFI_MANAGER_STATE_AP_REQUEST) requested_state = WIFI_MANAGER_STATE_AP;
+    if (bits == WIFI_MANAGER_STATE_NONE_REQUEST) requested_state = WIFI_MANAGER_STATE_NONE;
+    else if (bits == WIFI_MANAGER_STATE_STA_REQUEST) requested_state = WIFI_MANAGER_STATE_STA;
+    else if (bits == WIFI_MANAGER_STATE_AP_REQUEST) requested_state = WIFI_MANAGER_STATE_AP;
+    else if (bits == (WIFI_MANAGER_STATE_AP_REQUEST | WIFI_MANAGER_STATE_STA)) requested_state = WIFI_MANAGER_STATE_AP | WIFI_MANAGER_STATE_STA;
     else
       ESP_LOGW(TAG, "Requested state not recognized: %d", requested_state);
 
@@ -475,6 +476,7 @@ static esp_err_t transition_to_state(wifi_manager_t* manager, wifi_manager_state
 
   // Update state event group
   xEventGroupSetBits(manager->state_event_group, new_state);
+  ESP_LOGI(TAG, "Wi-Fi in state:  0x%X", new_state);
 
   return ESP_OK;
 }
