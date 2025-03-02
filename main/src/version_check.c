@@ -15,7 +15,6 @@
  */
 
 #include "version_check.h"
-#include "allocation.h"
 #include "configuration.h"
 #include "ota_download.h"
 #include "wifi_manager.h"
@@ -95,7 +94,9 @@ static esp_err_t version_check_http_event_handler(esp_http_client_event_t* evt) 
 
     case HTTP_EVENT_ON_FINISH:
       ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
-      check_and_free(output_buffer);
+      if (output_buffer) {
+        free(output_buffer);
+      }
       output_len = 0;
       break;
 
@@ -107,7 +108,9 @@ static esp_err_t version_check_http_event_handler(esp_http_client_event_t* evt) 
         ESP_LOGI(TAG, "Last esp error code: 0x%x", err);
         ESP_LOGI(TAG, "Last mbedtls failure: 0x%x", mbedtls_err);
       }
-      check_and_free(output_buffer);
+      if (output_buffer) {
+        free(output_buffer);
+      }
       output_len = 0;
       break;
 
@@ -142,14 +145,13 @@ static esp_err_t parse_https_response(char const* const https_response, char* ve
 }
 
 static esp_err_t get_https_version(char const* const url_version, char* version) {
-  char* local_response_buffer = NULL;
-  esp_err_t err =
-    allocate_and_clear_buffer((void**)&local_response_buffer, MAX_HTTP_OUTPUT_BUFFER, TAG, ESP_ERR_NO_MEM);
-  if (err != ESP_OK) {
+  char* local_response_buffer = calloc(MAX_HTTP_OUTPUT_BUFFER, sizeof(char));
+  if (local_response_buffer == NULL) {
     ESP_LOGE(TAG, "Failed to allocate memory for local response");
-    return err;
+    return ESP_ERR_NO_MEM;
   }
 
+  esp_err_t err = ESP_OK;
   const esp_http_client_config_t https_config = {
     .url = url_version,
     .cert_pem = (char*)server_cert_pem_start, // #TODO move cert to spiffs
@@ -177,7 +179,7 @@ static esp_err_t get_https_version(char const* const url_version, char* version)
 
   err = parse_https_response(local_response_buffer, version);
 
-  check_and_free(local_response_buffer);
+  free(local_response_buffer);
   return err;
 }
 
@@ -193,10 +195,9 @@ static esp_err_t check_https_firmware_version() {
   }
 
   // Server version
-  char* server_version = NULL;
-  err = allocate_and_clear_buffer((void**)&server_version, MAX_HTTP_OUTPUT_BUFFER, TAG, ESP_ERR_NO_MEM);
-  if (err != ESP_OK) {
-    return err;
+  char* server_version = calloc(MAX_HTTP_OUTPUT_BUFFER, sizeof(char));
+  if (server_version == NULL) {
+    return ESP_ERR_NO_MEM;
   }
 
   const unit_configuration_t* unit_cfg = unit_config_acquire();
@@ -208,7 +209,7 @@ static esp_err_t check_https_firmware_version() {
       : ESP_NEW_FIRMWARE_VERSION_FOUND; // Compare
   }
 
-  check_and_free(server_version);
+  free(server_version);
   unit_config_release();
   return err;
 }

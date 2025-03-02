@@ -16,7 +16,6 @@
 
 #include "nvs_manager.h"
 
-#include "allocation.h"
 #include "configuration.h"
 #include "deserialisation.h"
 #include "serialisation.h"
@@ -236,7 +235,9 @@ static void store_unit_default_config_to_nvs() {
 
   // Initialize connectivity configuration
   con_cfg->wifi_settings_count = 1;
-  check_and_free(con_cfg->wifi_settings); // Free existing memory
+  if(con_cfg->wifi_settings){
+    free(con_cfg->wifi_settings);
+  }
   con_cfg->wifi_settings = malloc(sizeof(wifi_settings_t)); // Allocate for one wifi setting
   if (!con_cfg->wifi_settings) {
     ESP_LOGE(TAG, "Failed to allocate memory for wifi_settings");
@@ -272,7 +273,9 @@ static void store_unit_default_config_to_nvs() {
   sys_cfg->log_level = CONFIG_LOG_DEFAULT_LEVEL;
 
   // Initialize user configuration
-  check_and_free(usr_cfg->unit_name);
+  if (usr_cfg->unit_name) {
+    free(usr_cfg->unit_name);
+  }
   usr_cfg->unit_name_len = strlen(CONFIG_ESP_NAME);
   usr_cfg->unit_name = malloc(usr_cfg->unit_name_len + 1);
   if (!usr_cfg->unit_name) {
@@ -329,8 +332,11 @@ static esp_err_t update_nvs_from_config() {
   const unit_configuration_t* unit_cfg = unit_config_acquire();
   const size_t blob_size = calculate_unit_configuration_size(unit_cfg);
 
-  uint8_t* serialized_blob = NULL;
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
+  uint8_t* serialized_blob = calloc(blob_size, sizeof(uint8_t));
+  if (serialized_blob == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate memory for serialization blob");
+    abort();
+  }
 
   serialize_unit_configuration(unit_cfg, serialized_blob);
 
@@ -341,7 +347,7 @@ static esp_err_t update_nvs_from_config() {
   ESP_ERROR_CHECK(nvs_commit(nvs_handle));
 
   // Cleanup
-  check_and_free(serialized_blob);
+  free(serialized_blob);
   nvs_close(nvs_handle);
   ESP_LOGI(TAG, "Current unit configuration stored in NVS");
 
@@ -364,8 +370,11 @@ static esp_err_t read_nvs_into_config() {
     return ESP_ERR_NOT_FOUND;
   }
 
-  uint8_t* serialized_blob = NULL;
-  ESP_ERROR_CHECK(allocate_and_clear_buffer((void**)&serialized_blob, blob_size, TAG, ESP_ERR_NO_MEM));
+  uint8_t* serialized_blob = calloc(blob_size, sizeof(uint8_t));
+  if (serialized_blob == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate memory for serialization blob");
+    abort();
+  }
   ESP_ERROR_CHECK(nvs_get_blob(nvs_handle, UNIT_CONFIG_KEY, serialized_blob, &blob_size));
 
   ESP_LOGI(TAG, "Loaded blob of size %d.", blob_size);
@@ -376,7 +385,7 @@ static esp_err_t read_nvs_into_config() {
   esp_log_level_set("*", unit_cfg->sys_config.log_level);
 
   unit_config_release();
-  check_and_free(serialized_blob);
+  free(serialized_blob);
   nvs_close(nvs_handle);
   ESP_LOGI(TAG, "Unit configuration loaded from NVS");
 
